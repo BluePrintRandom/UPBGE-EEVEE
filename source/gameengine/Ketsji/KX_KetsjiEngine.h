@@ -322,13 +322,14 @@ private:
 	void PostProcessScene(KX_Scene *scene);
 
 	void BeginFrame();
-	void EndFrame();
 
 	FrameTimes GetFrameTimes();
 
 public:
 	KX_KetsjiEngine();
 	virtual ~KX_KetsjiEngine();
+
+	void EndFrame(); // public called from KX_Scene //eevee
 
 	/// set the devices and stuff. the client must take care of creating these
 	void SetInputDevice(SCA_IInputDevice *inputDevice);

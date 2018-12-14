@@ -57,6 +57,8 @@
 extern "C" {
 #  include "BKE_global.h"
 #  include "BLF_api.h"
+#  include "../draw/intern/DRW_render.h"
+#  include "GPU_matrix.h"
 }
 
 #include "MEM_guardedalloc.h"
@@ -290,9 +292,9 @@ void RAS_Rasterizer::Init()
 
 	SetColorMask(true, true, true, true);
 
-	m_impl->Init();
+	//m_impl->Init();
 
-	InitOverrideShadersInterface();
+	//InitOverrideShadersInterface();
 }
 
 void RAS_Rasterizer::Exit()
@@ -306,7 +308,15 @@ void RAS_Rasterizer::Exit()
 	SetClearColor(0.0f, 0.0f, 0.0f, 0.0f);
 
 	Clear(RAS_COLOR_BUFFER_BIT | RAS_DEPTH_BUFFER_BIT);
-	SetDepthMask(RAS_DEPTHMASK_ENABLED);
+
+	DRW_viewport_matrix_override_unset(DRW_MAT_VIEW);
+	DRW_viewport_matrix_override_unset(DRW_MAT_VIEWINV);
+	DRW_viewport_matrix_override_unset(DRW_MAT_WIN);
+	DRW_viewport_matrix_override_unset(DRW_MAT_WININV);
+	DRW_viewport_matrix_override_unset(DRW_MAT_PERS);
+	DRW_viewport_matrix_override_unset(DRW_MAT_PERSINV);
+
+	/*SetDepthMask(RAS_DEPTHMASK_ENABLED);
 	SetDepthFunc(RAS_LEQUAL);
 	SetBlendFunc(RAS_ONE, RAS_ZERO);
 
@@ -317,33 +327,18 @@ void RAS_Rasterizer::Exit()
 
 	ResetGlobalDepthTexture();
 
-	EndFrame();
+	EndFrame();*/
 }
 
 void RAS_Rasterizer::BeginFrame(double time)
 {
 	m_time = time;
 
-	m_state.polyOffset[0] = -1.0f;
-	m_state.polyOffset[1] = -1.0f;
-
-	SetCullFace(true);
-	Enable(RAS_DEPTH_TEST);
-
-	Disable(RAS_BLEND);
-	Disable(RAS_ALPHA_TEST);
-	//m_last_alphablend = GPU_BLEND_SOLID;
-	//GPU_set_material_alpha_blend(GPU_BLEND_SOLID);
+	GPU_matrix_reset();
 
 	SetFrontFace(true);
 
 	m_impl->BeginFrame();
-
-	Enable(RAS_MULTISAMPLE);
-
-	Enable(RAS_SCISSOR_TEST);
-
-	SetDepthFunc(RAS_LEQUAL);
 
 	// Render Tools
 	m_clientobject = nullptr;
@@ -351,7 +346,34 @@ void RAS_Rasterizer::BeginFrame(double time)
 	m_lastauxinfo = nullptr;
 	m_lastlighting = true; /* force disable in DisableLights() */
 
-	DisableLights();
+	//m_state.polyOffset[0] = -1.0f;
+	//m_state.polyOffset[1] = -1.0f;
+
+	//SetCullFace(true);
+	//Enable(RAS_DEPTH_TEST);
+
+	//Disable(RAS_BLEND);
+	//Disable(RAS_ALPHA_TEST);
+	////m_last_alphablend = GPU_BLEND_SOLID;
+	////GPU_set_material_alpha_blend(GPU_BLEND_SOLID);
+
+	//SetFrontFace(true);
+
+	//m_impl->BeginFrame();
+
+	//Enable(RAS_MULTISAMPLE);
+
+	//Enable(RAS_SCISSOR_TEST);
+
+	//SetDepthFunc(RAS_LEQUAL);
+
+	//// Render Tools
+	//m_clientobject = nullptr;
+	//m_lastlightlayer = -1;
+	//m_lastauxinfo = nullptr;
+	//m_lastlighting = true; /* force disable in DisableLights() */
+
+	//DisableLights();
 }
 
 void RAS_Rasterizer::EndFrame()
@@ -359,6 +381,37 @@ void RAS_Rasterizer::EndFrame()
 	SetColorMask(true, true, true, true);
 
 	Disable(RAS_MULTISAMPLE);
+}
+
+void RAS_Rasterizer::SetMatrix(const mt::mat4& viewmat, const mt::mat4& projmat, const mt::vec3& pos, const mt::vec3& scale)
+{
+	m_matrices.view = viewmat;
+	m_matrices.proj = projmat;
+	m_matrices.viewinv = m_matrices.view.Inverse();
+	m_matrices.projinv = m_matrices.proj.Inverse();
+	m_matrices.pers = m_matrices.proj * m_matrices.view;
+	m_matrices.persinv = m_matrices.pers.Inverse();
+
+	float mat[4][4];
+	float matinv[4][4];
+
+	m_matrices.view.Pack(mat);
+	m_matrices.viewinv.Pack(matinv);
+
+	DRW_viewport_matrix_override_set(mat, DRW_MAT_VIEW);
+	DRW_viewport_matrix_override_set(matinv, DRW_MAT_VIEWINV);
+
+	m_matrices.proj.Pack(mat);
+	m_matrices.projinv.Pack(matinv);
+
+	DRW_viewport_matrix_override_set(mat, DRW_MAT_WIN);
+	DRW_viewport_matrix_override_set(matinv, DRW_MAT_WININV);
+
+	m_matrices.pers.Pack(mat);
+	m_matrices.persinv.Pack(matinv);
+
+	DRW_viewport_matrix_override_set(mat, DRW_MAT_PERS);
+	DRW_viewport_matrix_override_set(matinv, DRW_MAT_PERSINV);
 }
 
 void RAS_Rasterizer::SetDrawingMode(RAS_Rasterizer::DrawType drawingmode)

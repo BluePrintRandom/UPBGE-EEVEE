@@ -103,6 +103,12 @@
 
 extern "C" {
 #  include "BKE_collection.h"
+#  include "BKE_layer.h"
+#  include "BKE_scene.h"
+#  include "depsgraph/DEG_depsgraph.h"
+#  include "draw/DRW_engine.h"
+#  include "draw/intern/DRW_render.h"
+#  include "GPU_glew.h"
 }
 
 static void *KX_SceneReplicationFunc(SG_Node *node, void *gameobj, void *scene)
@@ -160,6 +166,8 @@ KX_Scene::KX_Scene(SCA_IInputDevice *inputDevice,
 	m_blenderScene(scene),
 	m_previousAnimTime(0.0f),
 	m_isActivedHysteresis(false),
+	m_isRuntime(true), //eevee
+	m_resetTaaSamples(false), //eevee
 	m_lodHysteresisValue(0)
 {
 
@@ -197,6 +205,16 @@ KX_Scene::KX_Scene(SCA_IInputDevice *inputDevice,
 
 	m_animationPool = BLI_task_pool_create(KX_GetActiveEngine()->GetTaskScheduler(), &m_animationPoolData);
 
+	/*************************************************EEVEE INTEGRATION***********************************************************/
+	m_staticObjects = {};
+
+	m_taaSamplesBackup = scene->eevee.taa_samples;
+	scene->eevee.taa_samples = 0;
+	DEG_id_tag_update(&scene->id, ID_RECALC_COPY_ON_WRITE);
+
+	RenderAfterCameraSetup(true);
+	/******************************************************************************************************************************/
+
 #ifdef WITH_PYTHON
 	m_attrDict = nullptr;
 	m_removeCallbacks = nullptr;
@@ -209,6 +227,25 @@ KX_Scene::KX_Scene(SCA_IInputDevice *inputDevice,
 
 KX_Scene::~KX_Scene()
 {
+
+	/* EEVEE INTEGRATION */
+
+	m_isRuntime = false; //eevee
+
+	DRW_game_render_loop_end();
+
+	Scene *scene = GetBlenderScene();
+	scene->eevee.taa_samples = m_taaSamplesBackup;
+	DEG_id_tag_update(&scene->id, ID_RECALC_COPY_ON_WRITE);
+
+	// Flush depsgraph updates a last time at ge exit
+	ViewLayer *view_layer = BKE_view_layer_default_view(scene);
+	Depsgraph *depsgraph = BKE_scene_get_depsgraph(scene, view_layer, false);
+	Main *bmain = KX_GetActiveEngine()->GetConverter()->GetMain();
+	BKE_scene_graph_update_tagged(depsgraph, bmain);
+
+	/* End of EEVEE INTEGRATION */
+
 	/* The release of debug properties used to be in SCA_IScene::~SCA_IScene
 	 * It's still there but we remove all properties here otherwise some
 	 * reference might be hanging and causing late release of objects
@@ -297,6 +334,72 @@ KX_Scene::~KX_Scene()
 	}
 #endif
 }
+
+/*******************EEVEE INTEGRATION******************/
+
+bool KX_Scene::ObjectsAreStatic()
+{
+	return GetObjectList()->GetCount() == m_staticObjects.size();
+}
+
+void KX_Scene::ResetTaaSamples()
+{
+	m_resetTaaSamples = true;
+}
+
+void KX_Scene::RenderAfterCameraSetup(bool calledFromConstructor)
+{
+
+	for (KX_GameObject *gameobj : GetObjectList()) {
+		gameobj->TagForUpdate();
+	}
+
+	bool reset_taa_samples = !ObjectsAreStatic() || m_resetTaaSamples;
+	m_resetTaaSamples = false;
+	m_staticObjects.clear();
+
+	KX_KetsjiEngine *engine = KX_GetActiveEngine();
+	RAS_Rasterizer *rasty = engine->GetRasterizer();
+	RAS_ICanvas *canvas = engine->GetCanvas();
+	KX_Camera *cam = GetActiveCamera();
+	Main *bmain = KX_GetActiveEngine()->GetConverter()->GetMain();
+	Scene *scene = GetBlenderScene();
+	ViewLayer *view_layer = BKE_view_layer_default_view(scene);
+	Object *maincam = cam ? cam->GetBlenderObject() : BKE_view_layer_camera_find(view_layer);
+
+	const RAS_Rect *viewport = &canvas->GetWindowArea();
+	int v[4] = { viewport->GetLeft(), viewport->GetBottom(), viewport->GetWidth() + 1, viewport->GetHeight() + 1 };
+
+	if (!calledFromConstructor) {
+		rasty->SetMatrix(cam->GetModelviewMatrix(), cam->GetProjectionMatrix(),
+			cam->NodeGetWorldPosition(), cam->NodeGetLocalScaling());
+	}
+
+	DRWMatrixState state;
+	DRW_viewport_matrix_get_all(&state);
+
+	int viewportsize[2] = { canvas->GetWidth(), canvas->GetHeight() };
+
+	GPUTexture *finaltex = DRW_game_render_loop(bmain, scene, maincam, viewportsize, state, v, calledFromConstructor, reset_taa_samples);
+
+	glEnable(GL_SCISSOR_TEST);
+	glViewport(v[0], v[1], v[2], v[3]);
+	glScissor(v[0], v[1], v[2], v[3]);
+
+	DRW_transform_to_display(finaltex, true);
+
+	if (!calledFromConstructor) {
+		engine->EndFrame();
+	}
+
+	DRW_game_render_loop_finish();
+}
+
+void KX_Scene::AppendToStaticObjects(KX_GameObject *gameobj)
+{
+	m_staticObjects.push_back(gameobj);
+}
+/****************End of EEVEE INTEGRATION*********************/
 
 std::string KX_Scene::GetName()
 {

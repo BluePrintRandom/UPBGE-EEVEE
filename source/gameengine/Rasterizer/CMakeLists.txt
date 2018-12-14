@@ -34,12 +34,15 @@ set(INC
 	../Physics/Common
 	../SceneGraph
 	../GameLogic
+	../../blender/makesrna
 	../../blender/makesdna
 	../../blender/blenfont
 	../../blender/blenlib
 	../../blender/blenkernel
+	../../blender/blentranslation
 	../../blender/gpu
 	../../blender/imbuf
+	../../blender/render/extern/include
 	../../../intern/glew-mx
 	../../../intern/guardedalloc
 	../../../intern/termcolor

@@ -248,6 +248,7 @@ public:
 	static OffScreenType NextRenderOffScreen(OffScreenType index);
 
 private:
+
 	class OffScreens
 	{
 	private:
@@ -355,6 +356,18 @@ private:
 public:
 	RAS_Rasterizer();
 	virtual ~RAS_Rasterizer();
+
+	struct Matrices
+	{
+		mt::mat4 view;
+		mt::mat4 viewinv;
+		mt::mat4 proj;
+		mt::mat4 projinv;
+		mt::mat4 pers;
+		mt::mat4 persinv;
+	} m_matrices;
+
+	void SetMatrix(const mt::mat4 &viewmat, const mt::mat4& projmat, const mt::vec3&pos, const mt::vec3&scale);
 
 	/**
 	 * Enable capability

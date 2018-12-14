@@ -164,6 +164,11 @@ public:
 	BL_Converter(Main *maggie, KX_KetsjiEngine *engine, bool alwaysUseExpandFraming, float camZoom);
 	virtual ~BL_Converter();
 
+	Main *GetMain()
+	{
+		return m_maggie;
+	}
+
 	/// Fully convert a non-libloaded scene.
 	void ConvertScene(KX_Scene *scene);
 

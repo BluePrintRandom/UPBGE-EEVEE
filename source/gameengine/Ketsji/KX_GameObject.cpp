@@ -99,6 +99,19 @@
 
 #include "CM_Message.h"
 
+extern "C" {
+#  include "BKE_collection.h"
+#  include "BKE_layer.h"
+#  include "BKE_library.h"
+#  include "BKE_mesh.h"
+#  include "DNA_mesh_types.h"
+#  include "depsgraph/DEG_depsgraph_query.h"
+#  include "draw/engines/eevee/eevee_private.h"
+#  include "windowmanager/WM_types.h"
+}
+
+#include "BL_Converter.h"
+
 KX_GameObject::ActivityCullingInfo::ActivityCullingInfo()
 	:m_flags(ACTIVITY_NONE),
 	m_physicsRadius(0.0f),
@@ -174,7 +187,7 @@ KX_GameObject::KX_GameObject(const KX_GameObject& other)
 	Py_XINCREF(m_collisionCallbacks);
 
 	if (other.m_components) {
-		m_components = static_cast<EXP_ListValue<KX_PythonComponent> *>(other.m_components->GetReplica());
+		//m_components = static_cast<EXP_ListValue<KX_PythonComponent> *>(other.m_components->GetReplica());
 
 		/*for (KX_PythonComponent *component : m_components) {
 			component->SetGameObject(this);
@@ -216,6 +229,99 @@ KX_GameObject::~KX_GameObject()
 		m_lodManager->Release();
 	}
 }
+
+/************************EEVEE_INTEGRATION**********************/
+void KX_GameObject::SetBlenderObject(Object *ob)
+{
+	m_pBlenderObject = ob;
+}
+void KX_GameObject::TagForUpdate()
+{
+	float obmat[4][4];
+	const mt::mat3x4 trans = NodeGetWorldTransform();
+	trans.PackFromAffineTransform(obmat);
+
+	bool staticObject = compare_m4m4(m_prevObmat, obmat, FLT_MIN);
+
+	if (staticObject) {
+		GetScene()->AppendToStaticObjects(this);
+	}
+	Object *ob = GetBlenderObject();
+	if (ob) {
+		copy_m4_m4(ob->obmat, obmat);
+		if (!staticObject) {
+			DEG_id_tag_update(&ob->id, NC_OBJECT | ND_TRANSFORM);
+			DEG_id_tag_update(&ob->id, ID_RECALC_COPY_ON_WRITE);
+		}
+
+		if (!staticObject && ELEM(ob->type, OB_MESH, OB_CURVE, OB_FONT)) {
+			if (m_castShadows) {
+				EEVEE_ObjectEngineData *oedata = EEVEE_object_data_ensure(ob);
+				oedata->need_update = true;
+			}
+		}
+	}
+
+	copy_m4_m4(m_prevObmat, obmat);
+}
+
+void KX_GameObject::ReplicateBlenderObject()
+{
+	Object *ob = GetBlenderObject();
+	if (ob) {
+		Main *bmain = KX_GetActiveEngine()->GetConverter()->GetMain();
+		Object *newob = BKE_object_copy(bmain, ob);
+		Scene *scene = GetScene()->GetBlenderScene();
+		ViewLayer *view_layer = BKE_view_layer_default_view(scene);
+		BKE_collection_object_add_from(bmain, scene, BKE_view_layer_camera_find(view_layer), newob); //add replica where is the active camera
+		newob->base_flag |= BASE_VISIBLE;
+		DEG_relations_tag_update(bmain);
+		m_pBlenderObject = newob;
+		m_isReplica = true;
+	}
+}
+void KX_GameObject::RemoveReplicaObject()
+{
+	Object *ob = GetBlenderObject();
+	if (ob && m_isReplica) {
+		Main *bmain = KX_GetActiveEngine()->GetConverter()->GetMain();
+		BKE_id_free(bmain, &ob->id);
+		DEG_relations_tag_update(bmain);
+	}
+}
+void KX_GameObject::SetBackupMesh(Mesh *me)
+{
+	Main *bmain = KX_GetActiveEngine()->GetConverter()->GetMain();
+	m_backupMesh = BKE_mesh_copy(bmain, me);
+}
+void KX_GameObject::RestoreOriginalMesh()
+{
+	Object *ob = GetBlenderObject();
+	if (ob && m_backupMesh) {
+		Main *bmain = KX_GetActiveEngine()->GetConverter()->GetMain();
+		Mesh *origMesh = (Mesh *)ob->data;
+		BKE_mesh_copy_data(bmain, origMesh, m_backupMesh, 0);
+		DEG_id_tag_update(&origMesh->id, ID_RECALC_GEOMETRY);
+	}
+}
+
+void KX_GameObject::HideOriginalObject()
+{
+	Object *ob = GetBlenderObject();
+	if (ob && !m_isReplica) {
+		ob->base_flag &= ~BASE_VISIBLE; // TOFIX
+	}
+}
+
+void KX_GameObject::UnHideOriginalObject()
+{
+	Object *ob = GetBlenderObject();
+	if (ob && !m_isReplica) {
+		ob->base_flag |= BASE_VISIBLE;
+	}
+}
+
+/********************End of EEVEE INTEGRATION*********************/
 
 KX_GameObject *KX_GameObject::GetClientObject(KX_ClientObjectInfo *info)
 {

@@ -68,6 +68,7 @@ struct Object;
 class KX_ObstacleSimulation;
 class KX_CollisionContactPointList;
 struct bAction;
+struct Mesh;
 
 #ifdef WITH_PYTHON
 /* utility conversion function */
@@ -102,6 +103,15 @@ public:
 	};
 
 protected:
+
+	/* EEVEE INTEGRATION */
+	float m_savedObmat[4][4];
+	float m_prevObmat[4][4];
+	bool m_castShadows;
+	bool m_isReplica;
+	Mesh *m_backupMesh;
+	Object *m_pBlenderObject;
+	/* End of EEVEE INTEGRATION */
 
 	KX_ClientObjectInfo m_clientInfo;
 	std::string							m_name;
@@ -142,6 +152,21 @@ protected:
 	BL_ActionManager* GetActionManager();
 
 public:
+
+	/* EEVEE INTEGRATION */
+
+	void TagForUpdate();
+	void ReplicateBlenderObject();
+	void HideOriginalObject();
+	void UnHideOriginalObject();
+	void RemoveReplicaObject();
+	void SetBackupMesh(Mesh *me);
+	void RestoreOriginalMesh();
+	void SetBlenderObject(Object *ob);
+
+	/* END OF EEVEE INTEGRATION */
+
+
 	/**
 	 * KX_GameObject custom infos for ray cast, it contains property name,
 	 * collision mask, xray flag and hited object.

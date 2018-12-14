@@ -112,6 +112,16 @@ private:
 	PyObject *m_drawCallbacks[MAX_DRAW_CALLBACK];
 #endif
 
+
+	/***************EEVEE INTEGRATION*****************/
+
+	std::vector<KX_GameObject *>m_staticObjects;
+	std::vector<KX_GameObject *>m_lightProbes;
+
+	int m_taaSamplesBackup;
+	bool m_resetTaaSamples;
+	/*************************************************/
+
 	struct CullingInfo
 	{
 		int m_layer;
@@ -271,6 +281,20 @@ public:
 			 RAS_ICanvas *canvas,
 			 KX_NetworkMessageManager *messageManager);
 	virtual ~KX_Scene();
+
+
+	/******************EEVEE INTEGRATION************************/
+	void AppendToStaticObjects(KX_GameObject *gameobj);
+	bool ObjectsAreStatic();
+	void ResetTaaSamples();
+
+
+	bool m_isRuntime; // Too lazy to put that in protected
+
+	void RenderAfterCameraSetup(bool calledFromConstructor);
+
+	//void RenderBucketsNew(const KX_CullingNodeList& nodes, RAS_Rasterizer *rasty);
+	/***************End of EEVEE INTEGRATION**********************/
 
 	RAS_BucketManager *GetBucketManager() const;
 	KX_TextureRendererManager *GetTextureRendererManager() const;
