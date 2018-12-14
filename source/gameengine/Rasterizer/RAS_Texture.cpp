@@ -23,22 +23,38 @@
  */
 
 #include "RAS_Texture.h"
+#include "RAS_TextureRenderer.h"
 
 #include "GPU_glew.h"
 
 RAS_Texture::RAS_Texture()
 	:m_bindCode(-1),
-	m_name("")
+	m_name(""),
+	m_renderer(nullptr)
 {
 }
 
 RAS_Texture::~RAS_Texture()
 {
+	// If the texture is free before the renderer (e.g lib free) then unregsiter ourself.
+	if (m_renderer) {
+		m_renderer->RemoveTextureUser(this);
+	}
 }
 
 std::string& RAS_Texture::GetName()
 {
 	return m_name;
+}
+
+void RAS_Texture::SetRenderer(RAS_TextureRenderer *renderer)
+{
+	m_renderer = renderer;
+}
+
+RAS_TextureRenderer *RAS_Texture::GetRenderer() const
+{
+	return m_renderer;
 }
 
 int RAS_Texture::GetCubeMapTextureType()
@@ -53,14 +69,14 @@ int RAS_Texture::GetTexture2DType()
 
 const std::array<int, 6>& RAS_Texture::GetCubeMapTargets()
 {
-	static std::array<int, 6> targets = {
-		GL_TEXTURE_CUBE_MAP_POSITIVE_Z,
-		GL_TEXTURE_CUBE_MAP_NEGATIVE_Z,
-		GL_TEXTURE_CUBE_MAP_POSITIVE_X,
-		GL_TEXTURE_CUBE_MAP_NEGATIVE_X,
-		GL_TEXTURE_CUBE_MAP_POSITIVE_Y,
-		GL_TEXTURE_CUBE_MAP_NEGATIVE_Y
-	};
+	static std::array<int, 6> targets{{
+										  GL_TEXTURE_CUBE_MAP_POSITIVE_Z_ARB,
+										  GL_TEXTURE_CUBE_MAP_NEGATIVE_Z_ARB,
+										  GL_TEXTURE_CUBE_MAP_POSITIVE_X_ARB,
+										  GL_TEXTURE_CUBE_MAP_NEGATIVE_X_ARB,
+										  GL_TEXTURE_CUBE_MAP_POSITIVE_Y_ARB,
+										  GL_TEXTURE_CUBE_MAP_NEGATIVE_Y_ARB
+									  }};
 
 	return targets;
 }

@@ -32,28 +32,34 @@
 #ifndef __RAS_MESH_SLOT_H__
 #define __RAS_MESH_SLOT_H__
 
+#include "RAS_RenderNode.h"
+
 #include <vector>
 
 class RAS_DisplayArrayBucket;
-class RAS_MeshObject;
 class RAS_MeshUser;
-struct DerivedMesh;
 
 class RAS_MeshSlot
 {
 private:
+	RAS_MeshSlotUpwardNode m_node;
 
 public:
 	// for rendering
 	RAS_DisplayArrayBucket *m_displayArrayBucket;
-	RAS_MeshObject *m_mesh;
-	DerivedMesh *m_pDerivedMesh;
 	RAS_MeshUser *m_meshUser;
 
-	RAS_MeshSlot(RAS_MeshObject *mesh, RAS_MeshUser *meshUser, RAS_DisplayArrayBucket *arrayBucket);
+	/// Batch index used for batching render.
+	short m_batchPartIndex;
+
+	RAS_MeshSlot(RAS_MeshUser *meshUser, RAS_DisplayArrayBucket *arrayBucket);
+	RAS_MeshSlot(const RAS_MeshSlot& other);
 	virtual ~RAS_MeshSlot();
 
 	void SetDisplayArrayBucket(RAS_DisplayArrayBucket *arrayBucket);
+
+	void GenerateTree(RAS_DisplayArrayUpwardNode& root, RAS_UpwardTreeLeafs& leafs);
+	void RunNode(const RAS_MeshSlotNodeTuple& tuple);
 };
 
 typedef std::vector<RAS_MeshSlot *> RAS_MeshSlotList;

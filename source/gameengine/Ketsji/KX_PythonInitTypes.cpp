@@ -34,6 +34,7 @@
 #include "KX_PythonInitTypes.h"
 
 /* Only for Class::Parents */
+#include "BL_BlenderShader.h"
 #include "BL_Shader.h"
 #include "BL_ActionActuator.h"
 #include "BL_ArmatureActuator.h"
@@ -43,9 +44,10 @@
 #include "BL_Texture.h"
 #include "KX_2DFilter.h"
 #include "KX_2DFilterManager.h"
-#include "KX_2DFilterFrameBuffer.h"
+#include "KX_2DFilterOffScreen.h"
 #include "KX_WorldInfo.h"
 #include "KX_ArmatureSensor.h"
+#include "KX_BatchGroup.h"
 #include "KX_BlenderMaterial.h"
 #include "KX_BoundingBox.h"
 #include "KX_Camera.h"
@@ -53,22 +55,25 @@
 #include "KX_CharacterWrapper.h"
 #include "KX_ConstraintActuator.h"
 #include "KX_ConstraintWrapper.h"
+#include "KX_CubeMap.h"
 #include "KX_GameActuator.h"
 #include "KX_LibLoadStatus.h"
-#include "KX_Light.h"
+#include "KX_LightObject.h"
 #include "KX_LodLevel.h"
 #include "KX_LodManager.h"
 #include "KX_FontObject.h"
-#include "KX_MeshProxy.h"
+#include "KX_Mesh.h"
 #include "KX_MouseFocusSensor.h"
 #include "KX_NetworkMessageActuator.h"
 #include "KX_NetworkMessageSensor.h"
 #include "KX_ObjectActuator.h"
 #include "KX_ParentActuator.h"
+#include "KX_PlanarMap.h"
 #include "KX_PolyProxy.h"
-#include "KX_SCA_AddObjectActuator.h"
-#include "KX_SCA_EndObjectActuator.h"
-#include "KX_SCA_ReplaceMeshActuator.h"
+//#include "KX_PythonComponent.h"
+#include "KX_AddObjectActuator.h"
+#include "KX_EndObjectActuator.h"
+#include "KX_ReplaceMeshActuator.h"
 #include "KX_SceneActuator.h"
 #include "KX_StateActuator.h"
 #include "KX_SteeringActuator.h"
@@ -96,7 +101,8 @@
 #include "KX_NearSensor.h"
 #include "KX_RadarSensor.h"
 #include "KX_RaySensor.h"
-#include "KX_SCA_DynamicActuator.h"
+#include "KX_MovementSensor.h"
+#include "KX_DynamicActuator.h"
 #include "KX_SoundActuator.h"
 #include "KX_CollisionSensor.h"
 #include "KX_VisibilityActuator.h"
@@ -114,16 +120,18 @@
 static void PyType_Attr_Set(PyGetSetDef *attr_getset, PyAttributeDef *attr)
 {
 	attr_getset->name = (char *)attr->m_name.c_str();
-	attr_getset->doc= nullptr;
+	attr_getset->doc = nullptr;
 
-	attr_getset->get= reinterpret_cast<getter>(PyObjectPlus::py_get_attrdef);
+	attr_getset->get = reinterpret_cast<getter>(EXP_PyObjectPlus::py_get_attrdef);
 
-	if (attr->m_access==KX_PYATTRIBUTE_RO)
-		attr_getset->set= nullptr;
-	else
-		attr_getset->set= reinterpret_cast<setter>(PyObjectPlus::py_set_attrdef);
+	if (attr->m_access == EXP_PYATTRIBUTE_RO) {
+		attr_getset->set = nullptr;
+	}
+	else {
+		attr_getset->set = reinterpret_cast<setter>(EXP_PyObjectPlus::py_set_attrdef);
+	}
 
-	attr_getset->closure= reinterpret_cast<void *>(attr);
+	attr_getset->closure = reinterpret_cast<void *>(attr);
 }
 
 static void PyType_Ready_ADD(PyObject *dict, PyTypeObject *tp, PyAttributeDef *attributes, PyAttributeDef *attributesPtr, int init_getset)
@@ -134,38 +142,41 @@ static void PyType_Ready_ADD(PyObject *dict, PyTypeObject *tp, PyAttributeDef *a
 		/* we need to do this for all types before calling PyType_Ready
 		 * since they will call the parents PyType_Ready and those might not have initialized vars yet */
 
-		if (tp->tp_getset==nullptr && ((attributes && !attributes->m_name.empty()) || (attributesPtr && !attributesPtr->m_name.empty()))) {
+		if (tp->tp_getset == nullptr && ((attributes && !attributes->m_name.empty()) || (attributesPtr && !attributesPtr->m_name.empty()))) {
 			PyGetSetDef *attr_getset;
-			int attr_tot= 0;
+			int attr_tot = 0;
 
 			if (attributes) {
-				for (attr = attributes; !attr->m_name.empty(); attr++, attr_tot++)
+				for (attr = attributes; !attr->m_name.empty(); attr++, attr_tot++) {
 					attr->m_usePtr = false;
+				}
 			}
 			if (attributesPtr) {
-				for (attr= attributesPtr; !attr->m_name.empty(); attr++, attr_tot++)
+				for (attr = attributesPtr; !attr->m_name.empty(); attr++, attr_tot++) {
 					attr->m_usePtr = true;
+				}
 			}
 
-			tp->tp_getset = attr_getset = reinterpret_cast<PyGetSetDef *>(PyMem_Malloc((attr_tot+1) * sizeof(PyGetSetDef))); // XXX - Todo, free
+			tp->tp_getset = attr_getset = reinterpret_cast<PyGetSetDef *>(PyMem_Malloc((attr_tot + 1) * sizeof(PyGetSetDef))); // XXX - Todo, free
 
 			if (attributes) {
-				for (attr= attributes; !attr->m_name.empty(); attr++, attr_getset++) {
+				for (attr = attributes; !attr->m_name.empty(); attr++, attr_getset++) {
 					PyType_Attr_Set(attr_getset, attr);
 				}
 			}
 			if (attributesPtr) {
-				for (attr= attributesPtr; !attr->m_name.empty(); attr++, attr_getset++) {
+				for (attr = attributesPtr; !attr->m_name.empty(); attr++, attr_getset++) {
 					PyType_Attr_Set(attr_getset, attr);
 				}
 			}
 			memset(attr_getset, 0, sizeof(PyGetSetDef));
 		}
-	} else {
+	}
+	else {
 		PyType_Ready(tp);
 		PyDict_SetItemString(dict, tp->tp_name, reinterpret_cast<PyObject *>(tp));
 	}
-	
+
 }
 
 
@@ -175,8 +186,8 @@ static void PyType_Ready_ADD(PyObject *dict, PyTypeObject *tp, PyAttributeDef *a
 
 
 PyDoc_STRVAR(GameTypes_module_documentation,
-"This module provides access to the game engine data types."
-);
+             "This module provides access to the game engine data types."
+             );
 static struct PyModuleDef GameTypes_module_def = {
 	PyModuleDef_HEAD_INIT,
 	"GameTypes",  /* m_name */
@@ -200,7 +211,7 @@ PyMODINIT_FUNC initGameTypesPythonBinding(void)
 
 	dict = PyModule_GetDict(m);
 
-	for (int init_getset= 1; init_getset > -1; init_getset--) { /* run twice, once to init the getsets another to run PyType_Ready */
+	for (int init_getset = 1; init_getset > -1; init_getset--) { /* run twice, once to init the getsets another to run PyType_Ready */
 		PyType_Ready_Attr(dict, BL_ActionActuator, init_getset);
 		PyType_Ready_Attr(dict, BL_Shader, init_getset);
 		PyType_Ready_Attr(dict, BL_ArmatureObject, init_getset);
@@ -209,14 +220,15 @@ PyMODINIT_FUNC initGameTypesPythonBinding(void)
 		PyType_Ready_AttrPtr(dict, BL_ArmatureBone, init_getset);
 		PyType_Ready_AttrPtr(dict, BL_ArmatureChannel, init_getset);
 		PyType_Ready_Attr(dict, BL_Texture, init_getset);
-		// PyType_Ready_Attr(dict, CPropValue, init_getset);  // doesn't use Py_Header
-		PyType_Ready_Attr(dict, CBaseListValue, init_getset);
-		PyType_Ready_Attr(dict, CListWrapper, init_getset);
-		PyType_Ready_Attr(dict, CValue, init_getset);
+		// PyType_Ready_Attr(dict, EXP_PropValue, init_getset);  // doesn't use Py_Header
+		PyType_Ready_Attr(dict, EXP_BaseListValue, init_getset);
+		PyType_Ready_Attr(dict, EXP_BaseListWrapper, init_getset);
+		PyType_Ready_Attr(dict, EXP_Value, init_getset);
 		PyType_Ready_Attr(dict, KX_2DFilter, init_getset);
 		PyType_Ready_Attr(dict, KX_2DFilterManager, init_getset);
-		PyType_Ready_Attr(dict, KX_2DFilterFrameBuffer, init_getset);
+		PyType_Ready_Attr(dict, KX_2DFilterOffScreen, init_getset);
 		PyType_Ready_Attr(dict, KX_ArmatureSensor, init_getset);
+		PyType_Ready_Attr(dict, KX_BatchGroup, init_getset);
 		PyType_Ready_Attr(dict, KX_BlenderMaterial, init_getset);
 		PyType_Ready_Attr(dict, KX_BoundingBox, init_getset);
 		PyType_Ready_Attr(dict, KX_Camera, init_getset);
@@ -224,6 +236,7 @@ PyMODINIT_FUNC initGameTypesPythonBinding(void)
 		PyType_Ready_Attr(dict, KX_CharacterWrapper, init_getset);
 		PyType_Ready_Attr(dict, KX_ConstraintActuator, init_getset);
 		PyType_Ready_Attr(dict, KX_ConstraintWrapper, init_getset);
+		PyType_Ready_Attr(dict, KX_CubeMap, init_getset);
 		PyType_Ready_Attr(dict, KX_GameActuator, init_getset);
 		PyType_Ready_Attr(dict, KX_GameObject, init_getset);
 		PyType_Ready_Attr(dict, KX_LibLoadStatus, init_getset);
@@ -231,20 +244,23 @@ PyMODINIT_FUNC initGameTypesPythonBinding(void)
 		PyType_Ready_Attr(dict, KX_LodLevel, init_getset);
 		PyType_Ready_Attr(dict, KX_LodManager, init_getset);
 		PyType_Ready_Attr(dict, KX_FontObject, init_getset);
-		PyType_Ready_Attr(dict, KX_MeshProxy, init_getset);
+		PyType_Ready_Attr(dict, KX_Mesh, init_getset);
 		PyType_Ready_Attr(dict, KX_MouseFocusSensor, init_getset);
+		PyType_Ready_Attr(dict, KX_MovementSensor, init_getset);
 		PyType_Ready_Attr(dict, KX_NearSensor, init_getset);
 		PyType_Ready_Attr(dict, KX_NetworkMessageActuator, init_getset);
 		PyType_Ready_Attr(dict, KX_NetworkMessageSensor, init_getset);
 		PyType_Ready_Attr(dict, KX_ObjectActuator, init_getset);
 		PyType_Ready_Attr(dict, KX_ParentActuator, init_getset);
+		PyType_Ready_Attr(dict, KX_PlanarMap, init_getset);
 		PyType_Ready_Attr(dict, KX_PolyProxy, init_getset);
+		//PyType_Ready_Attr(dict, KX_PythonComponent, init_getset);
 		PyType_Ready_Attr(dict, KX_RadarSensor, init_getset);
 		PyType_Ready_Attr(dict, KX_RaySensor, init_getset);
-		PyType_Ready_Attr(dict, KX_SCA_AddObjectActuator, init_getset);
-		PyType_Ready_Attr(dict, KX_SCA_DynamicActuator, init_getset);
-		PyType_Ready_Attr(dict, KX_SCA_EndObjectActuator, init_getset);
-		PyType_Ready_Attr(dict, KX_SCA_ReplaceMeshActuator, init_getset);
+		PyType_Ready_Attr(dict, KX_AddObjectActuator, init_getset);
+		PyType_Ready_Attr(dict, KX_DynamicActuator, init_getset);
+		PyType_Ready_Attr(dict, KX_EndObjectActuator, init_getset);
+		PyType_Ready_Attr(dict, KX_ReplaceMeshActuator, init_getset);
 		PyType_Ready_Attr(dict, KX_Scene, init_getset);
 		PyType_Ready_Attr(dict, KX_WorldInfo, init_getset);
 		PyType_Ready_Attr(dict, KX_NavMeshObject, init_getset);
@@ -253,13 +269,14 @@ PyMODINIT_FUNC initGameTypesPythonBinding(void)
 		PyType_Ready_Attr(dict, KX_StateActuator, init_getset);
 		PyType_Ready_Attr(dict, KX_SteeringActuator, init_getset);
 		PyType_Ready_Attr(dict, KX_CollisionSensor, init_getset);
+		PyType_Ready_Attr(dict, KX_TextureRenderer, init_getset);
 		PyType_Ready_Attr(dict, KX_TrackToActuator, init_getset);
 		PyType_Ready_Attr(dict, KX_VehicleWrapper, init_getset);
 		PyType_Ready_Attr(dict, KX_VertexProxy, init_getset);
 		PyType_Ready_Attr(dict, KX_VisibilityActuator, init_getset);
 		PyType_Ready_Attr(dict, KX_MouseActuator, init_getset);
 		PyType_Ready_Attr(dict, KX_CollisionContactPoint, init_getset);
-		PyType_Ready_Attr(dict, PyObjectPlus, init_getset);
+		PyType_Ready_Attr(dict, EXP_PyObjectPlus, init_getset);
 		PyType_Ready_Attr(dict, SCA_2DFilterActuator, init_getset);
 		PyType_Ready_Attr(dict, SCA_ANDController, init_getset);
 		// PyType_Ready_Attr(dict, SCA_Actuator, init_getset);  // doesn't use Py_Header
@@ -295,6 +312,7 @@ PyMODINIT_FUNC initGameTypesPythonBinding(void)
 	/* Init mathutils callbacks */
 	KX_GameObject_Mathutils_Callback_Init();
 	KX_ObjectActuator_Mathutils_Callback_Init();
+	KX_WorldInfo_Mathutils_Callback_Init();
 	KX_BlenderMaterial_Mathutils_Callback_Init();
 	KX_BoundingBox_Mathutils_Callback_Init();
 	BL_Texture_Mathutils_Callback_Init();

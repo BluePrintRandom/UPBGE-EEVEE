@@ -1,12 +1,15 @@
 #include "CcdConstraint.h"
 
+#include "BLI_utildefines.h"
+
 #include "btBulletDynamicsCommon.h"
 
 CcdConstraint::CcdConstraint(btTypedConstraint *constraint, bool disableCollision)
 	:m_constraint(constraint),
 	m_disableCollision(disableCollision),
-	m_enabled(true)
+	m_active(true)
 {
+	BLI_assert(m_constraint);
 }
 
 CcdConstraint::~CcdConstraint()
@@ -18,27 +21,38 @@ bool CcdConstraint::GetDisableCollision() const
 	return m_disableCollision;
 }
 
+bool CcdConstraint::GetActive() const
+{
+	return m_active;
+}
+
+void CcdConstraint::SetActive(bool active)
+{
+	m_active = active;
+}
+
 bool CcdConstraint::GetEnabled() const
 {
-	return m_enabled;
+	return m_constraint->isEnabled();
 }
 
 void CcdConstraint::SetEnabled(bool enabled)
 {
-	m_enabled = enabled;
+	m_constraint->setEnabled(enabled);
+
+	// Unsleep objects to enable constraint influence.
+	if (enabled) {
+		m_constraint->getRigidBodyA().activate(true);
+		m_constraint->getRigidBodyB().activate(true);
+	}
 }
 
 void CcdConstraint::SetParam(int param, float value0, float value1)
 {
-	if (!m_constraint)
-		return;
-
-	switch (m_constraint->getUserConstraintType())
-	{
+	switch (m_constraint->getUserConstraintType()) {
 		case PHY_GENERIC_6DOF_CONSTRAINT:
 		{
-			switch (param)
-			{
+			switch (param) {
 				case 0: case 1: case 2: case 3: case 4: case 5:
 				{
 					//param = 0..5 are constraint limits, with low/high limit value
@@ -91,34 +105,31 @@ void CcdConstraint::SetParam(int param, float value0, float value1)
 				default:
 				{
 				}
-			};
+			}
+			;
 			break;
 		};
 		case PHY_CONE_TWIST_CONSTRAINT:
 		{
-			switch (param)
-			{
+			switch (param) {
 				case 3: case 4: case 5:
 				{
 					//param = 3,4,5 are constraint limits, high limit values
 					btConeTwistConstraint *coneTwist = (btConeTwistConstraint *)m_constraint;
-					if (value1 < 0.0f)
-						coneTwist->setLimit(param, btScalar(BT_LARGE_FLOAT));
-					else
-						coneTwist->setLimit(param, value1);
+					coneTwist->setLimit(param, value1);
 					break;
 				}
 				default:
 				{
 				}
-			};
+			}
+			;
 			break;
 		};
 		case PHY_ANGULAR_CONSTRAINT:
 		case PHY_LINEHINGE_CONSTRAINT:
 		{
-			switch (param)
-			{
+			switch (param) {
 				case 3:
 				{
 					//param = 3 is a constraint limit, with low/high limit value
@@ -135,20 +146,16 @@ void CcdConstraint::SetParam(int param, float value0, float value1)
 		default:
 		{
 		};
-	};
+	}
+	;
 }
 
 float CcdConstraint::GetParam(int param)
 {
-	if (!m_constraint)
-		return 0.0f;
-
-	switch (m_constraint->getUserConstraintType())
-	{
+	switch (m_constraint->getUserConstraintType()) {
 		case PHY_GENERIC_6DOF_CONSTRAINT:
 		{
-			switch (param)
-			{
+			switch (param) {
 				case 0: case 1: case 2:
 				{
 					//param = 0..2 are linear constraint values
@@ -174,8 +181,19 @@ float CcdConstraint::GetParam(int param)
 		default:
 		{
 		};
-	};
+	}
+	;
 	return 0.0f;
+}
+
+float CcdConstraint::GetBreakingThreshold() const
+{
+	return m_constraint->getBreakingImpulseThreshold();
+}
+
+void CcdConstraint::SetBreakingThreshold(float threshold)
+{
+	m_constraint->setBreakingImpulseThreshold(threshold);
 }
 
 int CcdConstraint::GetIdentifier() const

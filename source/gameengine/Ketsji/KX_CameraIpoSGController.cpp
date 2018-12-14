@@ -31,96 +31,33 @@
 
 
 #include "KX_CameraIpoSGController.h"
-#include "KX_ScalarInterpolator.h"
 #include "KX_Camera.h"
 #include "RAS_CameraData.h"
 
-#if defined(_WIN64)
-typedef unsigned __int64 uint_ptr;
-#else
-typedef unsigned long uint_ptr;
-#endif
-
-bool KX_CameraIpoSGController::Update(double currentTime)
+bool KX_CameraIpoSGController::Update(SG_Node *node)
 {
-	if (m_modified)
-	{
-		T_InterpolatorList::iterator i;
-		for (i = m_interpolators.begin(); !(i == m_interpolators.end()); ++i) {
-			(*i)->Execute(m_ipotime);
-		}
-		
-		SG_Node* ob = (SG_Node*)m_node;
-		KX_Camera* kxcamera = (KX_Camera*) ob->GetSGClientObject();
-		RAS_CameraData* camdata = kxcamera->GetCameraData();
-		
-		if (m_modify_lens)
-			camdata->m_lens = m_lens;
-
-		if (m_modify_clipstart )
-			camdata->m_clipstart = m_clipstart;
-
-		if (m_modify_clipend)
-			camdata->m_clipend = m_clipend;
-		
-		if (m_modify_lens || m_modify_clipstart || m_modify_clipend)
-			kxcamera->InvalidateProjectionMatrix();
-
-		m_modified=false;
+	if (!SG_Controller::Update(node)) {
+		return false;
 	}
-	return false;
-}
 
+	KX_Camera *kxcamera = static_cast<KX_Camera *>(node->GetClientObject());
+	RAS_CameraData *camdata = kxcamera->GetCameraData();
 
-void KX_CameraIpoSGController::AddInterpolator(KX_IInterpolator* interp)
-{
-	this->m_interpolators.push_back(interp);
-}
-
-SG_Controller*	KX_CameraIpoSGController::GetReplica(class SG_Node* destnode)
-{
-	KX_CameraIpoSGController* iporeplica = new KX_CameraIpoSGController(*this);
-	// clear object that ipo acts on
-	iporeplica->ClearNode();
-
-	// dirty hack, ask Gino for a better solution in the ipo implementation
-	// hacken en zagen, in what we call datahiding, not written for replication :(
-
-	T_InterpolatorList oldlist = m_interpolators;
-	iporeplica->m_interpolators.clear();
-
-	T_InterpolatorList::iterator i;
-	for (i = oldlist.begin(); !(i == oldlist.end()); ++i) {
-		KX_ScalarInterpolator* copyipo = new KX_ScalarInterpolator(*((KX_ScalarInterpolator*)*i));
-		iporeplica->AddInterpolator(copyipo);
-
-		MT_Scalar* scaal = ((KX_ScalarInterpolator*)*i)->GetTarget();
-		uint_ptr orgbase = (uint_ptr)this;
-		uint_ptr orgloc = (uint_ptr)scaal;
-		uint_ptr offset = orgloc-orgbase;
-		uint_ptr newaddrbase = (uint_ptr)iporeplica + offset;
-		MT_Scalar* blaptr = (MT_Scalar*) newaddrbase;
-		copyipo->SetNewTarget((MT_Scalar*)blaptr);
+	if (m_modify_lens) {
+		camdata->m_lens = m_lens;
 	}
-	
-	return iporeplica;
-}
 
-KX_CameraIpoSGController::~KX_CameraIpoSGController()
-{
-
-	T_InterpolatorList::iterator i;
-	for (i = m_interpolators.begin(); !(i == m_interpolators.end()); ++i) {
-		delete (*i);
+	if (m_modify_clipstart) {
+		camdata->m_clipstart = m_clipstart;
 	}
-	
-}
 
-	void
-KX_CameraIpoSGController::SetOption(
-	int option,
-	int value) 
-{
-	/* Setting options */
+	if (m_modify_clipend) {
+		camdata->m_clipend = m_clipend;
+	}
 
+	if (m_modify_lens || m_modify_clipstart || m_modify_clipend) {
+		kxcamera->InvalidateProjectionMatrix();
+	}
+
+	return true;
 }

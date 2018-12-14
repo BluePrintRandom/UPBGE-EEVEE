@@ -35,48 +35,32 @@
 #include "SG_Controller.h"
 #include "SG_Node.h"
 
-#include "KX_IInterpolator.h"
+#include "SG_Interpolator.h"
 
 struct RAS_CameraData;
 
 class KX_CameraIpoSGController : public SG_Controller
 {
 public:
-	MT_Scalar           m_lens;
-	MT_Scalar           m_clipstart;
-	MT_Scalar           m_clipend;
+	float           m_lens;
+	float           m_clipstart;
+	float           m_clipend;
 
 private:
-	T_InterpolatorList	m_interpolators;
 	unsigned short  	m_modify_lens 	 : 1;
 	unsigned short	    m_modify_clipstart       : 1;
 	unsigned short		m_modify_clipend    	 : 1;
-	bool				m_modified;
 
-	double		        m_ipotime;
 public:
 	KX_CameraIpoSGController() : 
 				m_modify_lens(false),
 				m_modify_clipstart(false),
-				m_modify_clipend(false),
-				m_modified(true),
-				m_ipotime(0.0)
+				m_modify_clipend(false)
 		{}
 
-	~KX_CameraIpoSGController();
-	SG_Controller*	GetReplica(class SG_Node* destnode);
-	bool Update(double time);
+	virtual ~KX_CameraIpoSGController() = default;
+	virtual bool Update(SG_Node *node);
 
-		void
-	SetOption(
-		int option,
-		int value
-	);
-
-	void SetSimulatedTime(double time) {
-		m_ipotime = time;
-		m_modified = true;
-	}
 	void	SetModifyLens(bool modify) {
 		m_modify_lens = modify;
 	}
@@ -86,7 +70,6 @@ public:
 	void	SetModifyClipStart(bool modify) {
 		m_modify_clipstart = modify;
 	}
-	void	AddInterpolator(KX_IInterpolator* interp);
 };
 
 #endif  /* __KX_CAMERAIPOSGCONTROLLER_H__ */

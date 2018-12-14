@@ -34,42 +34,18 @@
 
 #include "SG_Controller.h"
 #include "SG_Node.h"
-#include "KX_IInterpolator.h"
+#include "SG_Interpolator.h"
+#include "mathfu.h"
 
-class KX_ObColorIpoSGController : public SG_Controller
+class KX_ObColorIpoSGController : public SG_Controller, public mt::SimdClassAllocator
 {
 public:
-	MT_Vector4			m_rgba;
-	
+	mt::vec4			m_rgba;
 
-private:
-	T_InterpolatorList	m_interpolators;
-	bool				m_modified;
-
-	double		        m_ipotime;
 public:
-	KX_ObColorIpoSGController() : 
-				m_modified(true),
-				m_ipotime(0.0)
-		{}
-	virtual ~KX_ObColorIpoSGController();
-	virtual	SG_Controller*	GetReplica(class SG_Node* destnode);
-	virtual bool Update(double time);
-	virtual void SetSimulatedTime(double time) {
-		m_ipotime = time;
-		m_modified = true;
-	}
-	
-		void
-	SetOption(
-		int option,
-		int value
-	) {
-		// intentionally empty
-	};
-
-
-	void	AddInterpolator(KX_IInterpolator* interp);
+	KX_ObColorIpoSGController() = default;
+	virtual ~KX_ObColorIpoSGController() = default;
+	virtual bool Update(SG_Node *node);
 };
 
 #endif  /* __KX_OBCOLORIPOSGCONTROLLER_H__ */

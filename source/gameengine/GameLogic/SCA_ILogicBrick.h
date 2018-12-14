@@ -40,7 +40,7 @@ class KX_NetworkMessageScene;
 class SCA_IScene;
 class SCA_LogicManager;
 
-class SCA_ILogicBrick : public CValue, public SG_QList
+class SCA_ILogicBrick : public EXP_Value, public SG_QList
 {
 	Py_Header
 protected:
@@ -50,8 +50,7 @@ protected:
 	int					m_Execute_Ueber_Priority;
 
 	bool				m_bActive;
-	CValue*				m_eventval;
-	std::string			m_text;
+	EXP_Value*				m_eventval;
 	std::string			m_name;
 	//unsigned long		m_drawcolor;
 	void RemoveEvent();
@@ -69,7 +68,6 @@ public:
 	virtual void	Relink(std::map<SCA_IObject *, SCA_IObject *>& obj_map);
 	virtual void Delete() { Release(); }
 
-	virtual const std::string GetText();
 	virtual std::string GetName();
 	virtual void		SetName(const std::string& name);
 		
@@ -128,10 +126,10 @@ public:
 #ifdef WITH_PYTHON
 	// python methods
 	
-	static PyObject*	pyattr_get_owner(PyObjectPlus *self_v, const KX_PYATTRIBUTE_DEF *attrdef);
+	static PyObject*	pyattr_get_owner(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef);
 
 	// check that attribute is a property
-	static int CheckProperty(PyObjectPlus *self, const PyAttributeDef *attrdef);
+	static int CheckProperty(EXP_PyObjectPlus *self, const PyAttributeDef *attrdef);
 
 	enum KX_BOOL_TYPE {
 		KX_BOOL_NODEF = 0,

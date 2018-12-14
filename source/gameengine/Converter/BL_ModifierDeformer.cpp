@@ -35,9 +35,11 @@
 
 #include "MEM_guardedalloc.h"
 #include "BL_ModifierDeformer.h"
+#include "BL_BlenderDataConversion.h"
 #include <string>
-#include "RAS_IPolygonMaterial.h"
-#include "RAS_MeshObject.h"
+#include "RAS_IMaterial.h"
+#include "RAS_MaterialBucket.h"
+#include "RAS_Mesh.h"
 #include "RAS_MeshUser.h"
 #include "RAS_BoundingBox.h"
 
@@ -54,13 +56,15 @@
 #include "BKE_action.h"
 #include "BKE_key.h"
 #include "BKE_ipo.h"
-#include "MT_Vector3.h"
 
 extern "C" {
 	#include "BKE_customdata.h"
 	#include "BKE_DerivedMesh.h"
 	#include "BKE_lattice.h"
+	#include "BKE_layer.h"
+	#include "BKE_scene.h"
 	#include "BKE_modifier.h"
+	#include "depsgraph/DEG_depsgraph.h"
 }
 
 #include "BLI_blenlib.h"
@@ -69,51 +73,32 @@ extern "C" {
 BL_ModifierDeformer::~BL_ModifierDeformer()
 {
 	if (m_dm) {
-		// deformedOnly is used as a user counter
-		if (--m_dm->deformedOnly == 0) {
-			m_dm->needsFree = 1;
-			m_dm->release(m_dm);
-		}
+		m_dm->needsFree = 1;
+		m_dm->release(m_dm);
 	}
-}
-
-RAS_Deformer *BL_ModifierDeformer::GetReplica()
-{
-	BL_ModifierDeformer *result;
-
-	result = new BL_ModifierDeformer(*this);
-	result->ProcessReplica();
-	return result;
-}
-
-void BL_ModifierDeformer::ProcessReplica()
-{
-	/* Note! - This is not inherited from PyObjectPlus */
-	BL_ShapeDeformer::ProcessReplica();
-	if (m_dm) {
-		// by default try to reuse mesh, deformedOnly is used as a user count
-		m_dm->deformedOnly++;
-	}
-	// this will force an update and if the mesh cannot be reused, a new one will be created
-	m_lastModifierUpdate = -1.0;
 }
 
 bool BL_ModifierDeformer::HasCompatibleDeformer(Object *ob)
 {
-	if (!ob->modifiers.first)
+	if (!ob->modifiers.first) {
 		return false;
+	}
 	// soft body cannot use mesh modifiers
-	if ((ob->gameflag & OB_SOFT_BODY) != 0)
+	if ((ob->gameflag & OB_SOFT_BODY) != 0) {
 		return false;
+	}
 	ModifierData *md;
 	for (md = (ModifierData *)ob->modifiers.first; md; md = md->next) {
-		if (modifier_dependsOnTime(md))
+		if (modifier_dependsOnTime(md)) {
 			continue;
-		if (!(md->mode & eModifierMode_Realtime))
+		}
+		if (!(md->mode & eModifierMode_Realtime)) {
 			continue;
+		}
 		/* armature modifier are handled by SkinDeformer, not ModifierDeformer */
-		if (md->type == eModifierType_Armature)
+		if (md->type == eModifierType_Armature) {
 			continue;
+		}
 		return true;
 	}
 	return false;
@@ -121,114 +106,102 @@ bool BL_ModifierDeformer::HasCompatibleDeformer(Object *ob)
 
 bool BL_ModifierDeformer::HasArmatureDeformer(Object *ob)
 {
-	if (!ob->modifiers.first)
+	if (!ob->modifiers.first) {
 		return false;
+	}
 
 	ModifierData *md = (ModifierData *)ob->modifiers.first;
-	if (md->type == eModifierType_Armature)
+	if (md->type == eModifierType_Armature) {
 		return true;
+	}
 
 	return false;
 }
 
-// return a deformed mesh that supports mapping (with a valid CD_ORIGINDEX layer)
-DerivedMesh *BL_ModifierDeformer::GetPhysicsMesh()
-{
-	/* TODO: This doesn't work currently because of eval_ctx. */
-#if 0
-	/* we need to compute the deformed mesh taking into account the current
-	 * shape and skin deformers, we cannot just call mesh_create_derived_physics()
-	 * because that would use the m_transvers already deformed previously by BL_ModifierDeformer::Update(),
-	 * so restart from scratch by forcing a full update the shape/skin deformers
-	 * (will do nothing if there is no such deformer) */
-	BL_ShapeDeformer::ForceUpdate();
-	BL_ShapeDeformer::Update();
-	// now apply the modifiers but without those that don't support mapping
-	Object *blendobj = m_gameobj->GetBlendObject();
-	/* hack: the modifiers require that the mesh is attached to the object
-	 * It may not be the case here because of replace mesh actuator */
-	Mesh *oldmesh = (Mesh *)blendobj->data;
-	blendobj->data = m_bmesh;
-	DerivedMesh *dm = mesh_create_derived_physics(m_scene, blendobj, m_transverts, CD_MASK_MESH);
-	/* restore object data */
-	blendobj->data = oldmesh;
-
-	// Some meshes with modifiers returns 0 polys, call DM_ensure_tessface avoid this.
-	DM_ensure_tessface(dm);
-
-	/* m_transverts is correct here (takes into account deform only modifiers) */
-	/* the derived mesh returned by this function must be released by the caller !!! */
-	return dm;
-#endif
-	return NULL;
-}
-
 bool BL_ModifierDeformer::Update(void)
 {
-	/* TODO: This doesn't work currently because of eval_ctx. */
-#if 0
-	bool bShapeUpdate = BL_ShapeDeformer::Update();
+	bool bShapeUpdate = BL_ShapeDeformer::UpdateInternal(false);
 
-	if (bShapeUpdate || m_lastModifierUpdate != m_gameobj->GetLastFrame()) {
+	if (bShapeUpdate || m_lastModifierUpdate != m_lastFrame) {
 		// static derived mesh are not updated
 		if (m_dm == nullptr || m_bDynamic) {
-			// Set to true if it's the first time Update() function is called.
-			const bool initialize = (m_dm == nullptr);
 			/* execute the modifiers */
-			Object *blendobj = m_gameobj->GetBlendObject();
+			Object *blendobj = m_gameobj->GetBlenderObject();
 			/* hack: the modifiers require that the mesh is attached to the object
 			 * It may not be the case here because of replace mesh actuator */
 			Mesh *oldmesh = (Mesh *)blendobj->data;
 			blendobj->data = m_bmesh;
 			/* execute the modifiers */
-			DerivedMesh *dm = mesh_create_derived_no_virtual(m_scene, blendobj, m_transverts, CD_MASK_MESH);
+			Scene *scene = m_scene;
+			ViewLayer *view_layer = BKE_view_layer_default_view(scene);
+			Depsgraph *depsgraph = BKE_scene_get_depsgraph(scene, view_layer, false);
+
+
+			DerivedMesh *dm = mesh_create_derived_no_virtual(depsgraph, m_scene, blendobj, (float(*)[3])m_transverts.data(), CD_MASK_MESH);
 			/* restore object data */
 			blendobj->data = oldmesh;
 			/* free the current derived mesh and replace, (dm should never be nullptr) */
-			if (m_dm != nullptr) {
-				// HACK! use deformedOnly as a user counter
-				if (--m_dm->deformedOnly == 0) {
-					m_dm->needsFree = 1;
-					m_dm->release(m_dm);
-				}
+			if (m_dm) {
+				m_dm->needsFree = 1;
+				m_dm->release(m_dm);
 			}
 			m_dm = dm;
 			// get rid of temporary data
 			m_dm->needsFree = 0;
 			m_dm->release(m_dm);
-			// HACK! use deformedOnly as a user counter
-			m_dm->deformedOnly = 1;
 			DM_update_materials(m_dm, blendobj);
 
-			// Some meshes with modifiers returns 0 polys, call DM_ensure_tessface avoid this.
-			DM_ensure_tessface(m_dm);
-
-			// Update object's AABB.
-			if (initialize || m_gameobj->GetAutoUpdateBounds()) {
-				float min[3], max[3];
-				INIT_MINMAX(min, max);
-				m_dm->getMinMax(m_dm, min, max);
-				m_boundingBox->SetAabb(MT_Vector3(min), MT_Vector3(max));
-			}
+			UpdateBounds();
+			UpdateTransverts();
 		}
-		m_lastModifierUpdate = m_gameobj->GetLastFrame();
+		m_lastModifierUpdate = m_lastFrame;
 		bShapeUpdate = true;
-
-		RAS_MeshUser *meshUser = m_gameobj->GetMeshUser();
-		for (RAS_MeshSlot *slot : meshUser->GetMeshSlots()) {
-			slot->m_pDerivedMesh = m_dm;
-		}
 	}
 
 	return bShapeUpdate;
-#endif
-	return false;
 }
 
-bool BL_ModifierDeformer::Apply(RAS_MeshMaterial *meshmat, RAS_IDisplayArray *array)
+void BL_ModifierDeformer::UpdateBounds()
 {
-	if (!Update())
-		return false;
+	float min[3], max[3];
+	INIT_MINMAX(min, max);
+	m_dm->getMinMax(m_dm, min, max);
+	m_boundingBox->SetAabb(mt::vec3(min), mt::vec3(max));
+}
 
-	return true;
+void BL_ModifierDeformer::UpdateTransverts()
+{
+	if (!m_dm) {
+		return;
+	}
+
+	const unsigned short nummat = m_slots.size();
+	std::vector<BL_MeshMaterial> mats(nummat);
+
+	for (unsigned short i = 0; i < nummat; ++i) {
+		const DisplayArraySlot& slot = m_slots[i];
+		RAS_MeshMaterial *meshmat = slot.m_meshMaterial;
+		RAS_DisplayArray *array = slot.m_displayArray;
+		array->Clear();
+
+		RAS_IMaterial *mat = meshmat->GetBucket()->GetMaterial();
+		mats[i] = {array, meshmat->GetBucket(), mat->IsVisible(), mat->IsTwoSided(), mat->IsCollider(), mat->IsWire()};
+	}
+
+	BL_ConvertDerivedMeshToArray(m_dm, m_bmesh, mats, m_mesh->GetLayersInfo());
+
+	for (const DisplayArraySlot& slot : m_slots) {
+		RAS_DisplayArray *array = slot.m_displayArray;
+		array->NotifyUpdate(RAS_DisplayArray::SIZE_MODIFIED);
+	}
+
+	// Update object's AABB.
+	if (m_gameobj->GetAutoUpdateBounds()) {
+		UpdateBounds();
+	}
+}
+
+void BL_ModifierDeformer::Apply(RAS_DisplayArray *array)
+{
+	Update();
 }

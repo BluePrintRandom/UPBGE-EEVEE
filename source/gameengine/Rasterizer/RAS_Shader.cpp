@@ -26,9 +26,6 @@
 #include "RAS_Rasterizer.h"
 
 #include "BLI_utildefines.h"
-#include "BLI_alloca.h"
-#include "BLI_string.h"
-
 #include "MEM_guardedalloc.h"
 
 #include "GPU_shader.h"
@@ -42,7 +39,6 @@ RAS_Shader::RAS_Uniform::RAS_Uniform(int data_size)
 	m_count(1),
 	m_dirty(true),
 	m_type(UNI_NONE),
-	m_transpose(0),
 	m_dataLen(data_size)
 {
 #ifdef SORT_UNIFORMS
@@ -156,6 +152,12 @@ void *RAS_Shader::RAS_Uniform::GetData()
 	return m_data;
 }
 
+RAS_Shader::UniformInfo::UniformInfo(const std::string& name, GPUShader *shader)
+	:nameHash(std::hash<std::string>()(name)),
+	location(GPU_shader_get_uniform(shader, name.c_str()))
+{
+}
+
 bool RAS_Shader::Ok() const
 {
 	return (m_shader && m_use);
@@ -163,8 +165,8 @@ bool RAS_Shader::Ok() const
 
 RAS_Shader::RAS_Shader()
 	:m_shader(nullptr),
-	m_use(0),
-	m_error(0),
+	m_use(false),
+	m_error(false),
 	m_dirty(true)
 {
 	for (unsigned short i = 0; i < MAX_PROGRAM; ++i) {
@@ -181,17 +183,13 @@ RAS_Shader::~RAS_Shader()
 
 void RAS_Shader::ClearUniforms()
 {
-	RAS_UniformVec::iterator it = m_uniforms.begin();
-	while (it != m_uniforms.end()) {
-		delete *it;
-		it++;
+	for (RAS_Uniform *uni : m_uniforms) {
+		delete uni;
 	}
 	m_uniforms.clear();
 
-	RAS_UniformVecDef::iterator itp = m_preDef.begin();
-	while (itp != m_preDef.end()) {
-		delete *itp;
-		itp++;
+	for (RAS_DefUniform *uni : m_preDef) {
+		delete uni;
 	}
 	m_preDef.clear();
 }
@@ -199,12 +197,10 @@ void RAS_Shader::ClearUniforms()
 RAS_Shader::RAS_Uniform *RAS_Shader::FindUniform(const int location)
 {
 #ifdef SORT_UNIFORMS
-	RAS_UniformVec::iterator it = m_uniforms.begin();
-	while (it != m_uniforms.end()) {
-		if ((*it)->GetLocation() == location) {
-			return *it;
+	for (RAS_Uniform *uni : m_uniforms) {
+		if (uni->GetLocation() == location) {
+			return uni;
 		}
-		it++;
 	}
 #endif
 	return nullptr;
@@ -289,7 +285,6 @@ std::string RAS_Shader::GetParsedProgram(ProgramType type) const
 	if (pos != -1) {
 		CM_Warning("found redundant #version directive in shader program, directive ignored.");
 		const unsigned int nline = prog.find("\n", pos);
-		CM_Debug(pos << ", " << nline);
 		prog.erase(pos, nline - pos);
 	}
 
@@ -298,15 +293,11 @@ std::string RAS_Shader::GetParsedProgram(ProgramType type) const
 	return prog;
 }
 
-bool RAS_Shader::LinkProgram(bool isCustomShader)
+bool RAS_Shader::LinkProgram()
 {
 	std::string vert;
 	std::string frag;
 	std::string geom;
-
-	if (m_error) {
-		goto program_error;
-	}
 
 	if (m_progs[VERTEX_PROGRAM].empty() || m_progs[FRAGMENT_PROGRAM].empty()) {
 		CM_Error("invalid GLSL sources.");
@@ -316,21 +307,17 @@ bool RAS_Shader::LinkProgram(bool isCustomShader)
 	vert = GetParsedProgram(VERTEX_PROGRAM);
 	frag = GetParsedProgram(FRAGMENT_PROGRAM);
 	geom = GetParsedProgram(GEOMETRY_PROGRAM);
-	m_shader = GPU_shader_create_ex(vert.c_str(), frag.c_str(), geom.empty() ? nullptr : geom.c_str(),
-									nullptr, nullptr, GPU_SHADER_TFB_NONE, NULL, 0, "custom");
+	m_shader = GPU_shader_create(vert.c_str(), frag.c_str(), geom.empty() ? nullptr : geom.c_str(),
+	                             nullptr, nullptr, "");
 	if (!m_shader) {
-		goto program_error;
-	}
-
-	m_error = 0;
-	return true;
-
-	program_error:
-	{
-		m_use = 0;
-		m_error = 1;
+		m_error = true;
 		return false;
 	}
+
+	ExtractUniformInfos();
+
+	m_error = false;
+	return true;
 }
 
 void RAS_Shader::ValidateProgram()
@@ -342,9 +329,49 @@ void RAS_Shader::ValidateProgram()
 	}
 }
 
+void RAS_Shader::ExtractUniformInfos()
+{
+	m_uniformInfos.clear();
+
+	//GPUUniformInfo *infos;
+	//const unsigned int count = GPU_shader_get_uniform_infos(m_shader, &infos);
+
+	//for (unsigned short i = 0; i < count; ++i) {
+	//	const GPUUniformInfo& gpuinfo = infos[i];
+	//	// Simple uniforms.
+	//	if (gpuinfo.size == 1) {
+	//		m_uniformInfos.emplace_back(gpuinfo.name, m_shader);
+	//	}
+	//	// Array uniforms.
+	//	else {
+	//		// Store the uniform base name.
+	//		const std::string baseName(gpuinfo.name, 0, strlen(gpuinfo.name) - 3);
+	//		m_uniformInfos.emplace_back(baseName, m_shader);
+
+	//		// Store location of each uniform items: name[i].
+	//		for (unsigned short i = 0; i < gpuinfo.size; ++i) {
+	//			const std::string name = baseName + '[' + std::to_string(i) + ']';
+	//			m_uniformInfos.emplace_back(name, m_shader);
+	//		}
+	//	}
+	//}
+
+	//if (infos) {
+	//	MEM_freeN(infos);
+	//}
+
+	//// Sort uniforms per name hash for fast search.
+	//std::sort(m_uniformInfos.begin(), m_uniformInfos.end());
+}
+
 bool RAS_Shader::GetError()
 {
 	return m_error;
+}
+
+unsigned int RAS_Shader::GetProg()
+{
+	return -1; // GPU_shader_program(m_shader);
 }
 
 GPUShader *RAS_Shader::GetGPUShader()
@@ -357,14 +384,14 @@ void RAS_Shader::SetSampler(int loc, int unit)
 	GPU_shader_uniform_int(m_shader, loc, unit);
 }
 
-void RAS_Shader::SetProg(bool enable)
+void RAS_Shader::BindProg()
 {
-	if (m_shader && enable) {
-		GPU_shader_bind(m_shader);
-	}
-	else {
-		GPU_shader_unbind();
-	}
+	GPU_shader_bind(m_shader);
+}
+
+void RAS_Shader::UnbindProg()
+{
+	GPU_shader_unbind();
 }
 
 void RAS_Shader::SetEnabled(bool enabled)
@@ -377,18 +404,15 @@ bool RAS_Shader::GetEnabled() const
 	return m_use;
 }
 
-void RAS_Shader::Update(RAS_Rasterizer *rasty, const MT_Matrix4x4 model)
+void RAS_Shader::Update(RAS_Rasterizer *rasty, const mt::mat4 &model)
 {
-	if (!Ok() || !m_preDef.size()) {
+	if (!Ok() || m_preDef.empty()) {
 		return;
 	}
 
-	const MT_Matrix4x4 &view = rasty->GetViewMatrix();
+	const mt::mat4 &view = rasty->GetViewMatrix();
 
-	RAS_UniformVecDef::iterator it;
-	for (it = m_preDef.begin(); it != m_preDef.end(); it++) {
-		RAS_DefUniform *uni = (*it);
-
+	for (RAS_DefUniform *uni : m_preDef) {
 		if (uni->m_loc == -1) {
 			continue;
 		}
@@ -406,12 +430,12 @@ void RAS_Shader::Update(RAS_Rasterizer *rasty, const MT_Matrix4x4 model)
 			}
 			case MODELMATRIX_INVERSE:
 			{
-				SetUniform(uni->m_loc, model.inverse());
+				SetUniform(uni->m_loc, model.Inverse());
 				break;
 			}
 			case MODELMATRIX_INVERSETRANSPOSE:
 			{
-				SetUniform(uni->m_loc, model.inverse(), true);
+				SetUniform(uni->m_loc, model.Inverse(), true);
 				break;
 			}
 			case MODELVIEWMATRIX:
@@ -421,25 +445,25 @@ void RAS_Shader::Update(RAS_Rasterizer *rasty, const MT_Matrix4x4 model)
 			}
 			case MODELVIEWMATRIX_TRANSPOSE:
 			{
-				MT_Matrix4x4 mat(view * model);
+				mt::mat4 mat(view *model);
 				SetUniform(uni->m_loc, mat, true);
 				break;
 			}
 			case MODELVIEWMATRIX_INVERSE:
 			{
-				MT_Matrix4x4 mat(view * model);
-				SetUniform(uni->m_loc, mat.inverse());
+				mt::mat4 mat(view *model);
+				SetUniform(uni->m_loc, mat.Inverse());
 				break;
 			}
 			case MODELVIEWMATRIX_INVERSETRANSPOSE:
 			{
-				MT_Matrix4x4 mat(view * model);
-				SetUniform(uni->m_loc, mat.inverse(), true);
+				mt::mat4 mat(view *model);
+				SetUniform(uni->m_loc, mat.Inverse(), true);
 				break;
 			}
 			case CAM_POS:
 			{
-				MT_Vector3 pos(rasty->GetCameraPosition());
+				mt::vec3 pos(rasty->GetCameraPosition());
 				SetUniform(uni->m_loc, pos);
 				break;
 			}
@@ -455,12 +479,12 @@ void RAS_Shader::Update(RAS_Rasterizer *rasty, const MT_Matrix4x4 model)
 			}
 			case VIEWMATRIX_INVERSE:
 			{
-				SetUniform(uni->m_loc, view.inverse());
+				SetUniform(uni->m_loc, view.Inverse());
 				break;
 			}
 			case VIEWMATRIX_INVERSETRANSPOSE:
 			{
-				SetUniform(uni->m_loc, view.inverse(), true);
+				SetUniform(uni->m_loc, view.Inverse(), true);
 				break;
 			}
 			case CONSTANT_TIMER:
@@ -473,7 +497,9 @@ void RAS_Shader::Update(RAS_Rasterizer *rasty, const MT_Matrix4x4 model)
 				SetUniform(uni->m_loc, (rasty->GetEye() == RAS_Rasterizer::RAS_STEREO_LEFTEYE) ? 0.0f : 0.5f);
 			}
 			default:
+			{
 				break;
+			}
 		}
 	}
 }
@@ -483,53 +509,42 @@ int RAS_Shader::GetAttribLocation(const std::string& name)
 	return GPU_shader_get_attribute(m_shader, name.c_str());
 }
 
-void RAS_Shader::BindAttributes(const std::unordered_map<int, std::string>& attrs)
+void RAS_Shader::BindAttribute(const std::string& attr, int loc)
 {
-	const unsigned short len = attrs.size();
-	int *locations = (int *)BLI_array_alloca(locations, len);
-	const char **names = (const char **)BLI_array_alloca(names, len);
-
-	unsigned short i = 0;
-	for (const std::pair<int, std::string>& pair : attrs) {
-		locations[i] = pair.first;
-		names[i] = pair.second.c_str();
-		++i;
-	}
-
-	GPU_shader_bind_attributes(m_shader, locations, (const char **)names, len);
+	//GPU_shader_bind_attribute(m_shader, loc, attr.c_str());
 }
 
 int RAS_Shader::GetUniformLocation(const std::string& name, bool debug)
 {
 	BLI_assert(m_shader != nullptr);
-	int location = GPU_shader_get_uniform_location_old(m_shader, name.c_str());
 
-	if (location == -1 && debug) {
-		CM_Error("invalid uniform value: " << name << ".");
+	const size_t hash = std::hash<std::string>()(name);
+	// Use binary search based on hashed name.
+	std::vector<UniformInfo>::const_iterator it = std::lower_bound(m_uniformInfos.begin(), m_uniformInfos.end(), hash,
+		[](const UniformInfo& info, size_t hash){ return (info.nameHash < hash); });
+
+	if (it == m_uniformInfos.end() || it->nameHash != hash) {
+		if (debug) {
+			CM_Error("invalid uniform value: " << name << ".");
+		}
+		return -1;
 	}
-
-	return location;
+	return it->location;
 }
 
-void RAS_Shader::SetUniform(int uniform, const MT_Vector2 &vec)
+void RAS_Shader::SetUniform(int uniform, const mt::vec2 &vec)
 {
-	float value[2];
-	vec.getValue(value);
-	GPU_shader_uniform_vector(m_shader, uniform, 2, 1, value);
+	GPU_shader_uniform_vector(m_shader, uniform, 2, 1, vec.Data());
 }
 
-void RAS_Shader::SetUniform(int uniform, const MT_Vector3 &vec)
+void RAS_Shader::SetUniform(int uniform, const mt::vec3 &vec)
 {
-	float value[3];
-	vec.getValue(value);
-	GPU_shader_uniform_vector(m_shader, uniform, 3, 1, value);
+	GPU_shader_uniform_vector(m_shader, uniform, 3, 1, vec.Data());
 }
 
-void RAS_Shader::SetUniform(int uniform, const MT_Vector4 &vec)
+void RAS_Shader::SetUniform(int uniform, const mt::vec4 &vec)
 {
-	float value[4];
-	vec.getValue(value);
-	GPU_shader_uniform_vector(m_shader, uniform, 4, 1, value);
+	GPU_shader_uniform_vector(m_shader, uniform, 4, 1, vec.Data());
 }
 
 void RAS_Shader::SetUniform(int uniform, const unsigned int &val)
@@ -547,26 +562,15 @@ void RAS_Shader::SetUniform(int uniform, const float &val)
 	GPU_shader_uniform_float(m_shader, uniform, val);
 }
 
-void RAS_Shader::SetUniform(int uniform, const MT_Matrix4x4 &vec, bool transpose)
+void RAS_Shader::SetUniform(int uniform, const mt::mat4 &vec, bool transpose)
 {
-	float value[16];
-	// note: getValue gives back column major as needed by OpenGL
-	vec.getValue(value);
-	GPU_shader_uniform_vector(m_shader, uniform, 16, 1, value);
+	GPU_shader_uniform_vector(m_shader, uniform, 16, 1, (float *)vec.Data());
 }
 
-void RAS_Shader::SetUniform(int uniform, const MT_Matrix3x3 &vec, bool transpose)
+void RAS_Shader::SetUniform(int uniform, const mt::mat3 &vec, bool transpose)
 {
 	float value[9];
-	value[0] = (float)vec[0][0];
-	value[1] = (float)vec[1][0];
-	value[2] = (float)vec[2][0];
-	value[3] = (float)vec[0][1];
-	value[4] = (float)vec[1][1];
-	value[5] = (float)vec[2][1];
-	value[6] = (float)vec[0][2];
-	value[7] = (float)vec[1][2];
-	value[8] = (float)vec[2][2];
+	vec.Pack(value);
 	GPU_shader_uniform_vector(m_shader, uniform, 9, 1, value);
 }
 

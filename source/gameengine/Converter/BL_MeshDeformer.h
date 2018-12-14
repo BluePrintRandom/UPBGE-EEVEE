@@ -33,11 +33,8 @@
 #define __BL_MESHDEFORMER_H__
 
 #include "RAS_Deformer.h"
-#include "BL_DeformableGameObject.h"
 #include "DNA_object_types.h"
 #include "DNA_key_types.h"
-#include "MT_Vector3.h"
-#include <stdlib.h>
 
 #ifdef _MSC_VER
 #  pragma warning (disable:4786)  /* get rid of stupid stl-visual compiler debug warning */
@@ -45,61 +42,47 @@
 
 struct Object;
 struct Mesh;
-class BL_DeformableGameObject;
-class RAS_MeshObject;
-class RAS_IPolyMaterial;
+class KX_GameObject;
+class RAS_Mesh;
+class RAS_IMaterial;
 
 class BL_MeshDeformer : public RAS_Deformer
 {
 public:
 	void VerifyStorage();
 	void RecalcNormals();
-	virtual void Relink(std::map<SCA_IObject *, SCA_IObject *>& map);
 
-	BL_MeshDeformer(BL_DeformableGameObject *gameobj, Object *obj, RAS_MeshObject *meshobj);
+	BL_MeshDeformer(KX_GameObject *gameobj, Object *obj, RAS_Mesh *meshobj);
 	virtual ~BL_MeshDeformer();
-	virtual void SetSimulatedTime(double time)
-	{
-	}
-	virtual bool Apply(RAS_MeshMaterial *meshmat, RAS_IDisplayArray *array);
+	virtual void Apply(RAS_DisplayArray *array);
 	virtual bool Update()
 	{
 		return false;
 	}
-	virtual bool UpdateBuckets()
+	virtual void UpdateBuckets()
 	{
-		return false;
 	}
-	virtual RAS_Deformer *GetReplica()
-	{
-		return nullptr;
-	}
-	virtual void ProcessReplica();
 	Mesh *GetMesh()
 	{
 		return m_bmesh;
 	}
-	virtual RAS_MeshObject *GetRasMesh()
-	{
-		return m_mesh;
-	}
-	virtual float(*GetTransVerts(int *tot))[3]
-	{
-		*tot = m_tvtot; return m_transverts;
-	}
+
+	void SetLastFrame(double lastFrame);
 
 protected:
 	Mesh *m_bmesh;
 
 	// this is so m_transverts doesn't need to be converted
 	// before deformation
-	float (*m_transverts)[3];
-	float (*m_transnors)[3];
+	std::vector<mt::vec3_packed> m_transverts;
+	std::vector<mt::vec3_packed> m_transnors;
 	Object *m_objMesh;
 
-	int m_tvtot;
-	BL_DeformableGameObject *m_gameobj;
+	KX_GameObject *m_gameobj;
+	/// Last update frame.
 	double m_lastDeformUpdate;
+	/// Last action update frame.
+	double m_lastFrame;
 };
 
 #endif

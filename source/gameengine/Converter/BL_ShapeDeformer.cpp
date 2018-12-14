@@ -36,8 +36,8 @@
 #include "MEM_guardedalloc.h"
 #include "BL_ShapeDeformer.h"
 #include <string>
-#include "RAS_IPolygonMaterial.h"
-#include "RAS_MeshObject.h"
+#include "RAS_IMaterial.h"
+#include "RAS_Mesh.h"
 
 #include "DNA_anim_types.h"
 #include "DNA_armature_types.h"
@@ -52,45 +52,25 @@
 #include "BKE_key.h"
 #include "BKE_fcurve.h"
 #include "BKE_ipo.h"
-
-#include "BKE_layer.h"
-#include "BKE_scene.h"
-
 #include "BKE_library.h"
-#include "MT_Vector3.h"
 
 extern "C" {
 	#include "BKE_lattice.h"
+	#include "BKE_layer.h"
+	#include "BKE_scene.h"
 	#include "BKE_animsys.h"
+	#include "depsgraph/DEG_depsgraph.h"
 }
 
 #include "BLI_blenlib.h"
 #include "BLI_math.h"
 
-#include "KX_Globals.h"
-
-#define __NLA_DEFNORMALS
-//#undef __NLA_DEFNORMALS
-
-BL_ShapeDeformer::BL_ShapeDeformer(BL_DeformableGameObject *gameobj,
-                                   Object *bmeshobj,
-                                   RAS_MeshObject *mesh)
-	:BL_SkinDeformer(gameobj, bmeshobj, mesh),
-	m_useShapeDrivers(false),
-	m_lastShapeUpdate(-1)
-{
-	m_key = m_bmesh->key ? BKE_key_copy(G.main, m_bmesh->key) : nullptr;
-}
-
-/* this second constructor is needed for making a mesh deformable on the fly. */
-BL_ShapeDeformer::BL_ShapeDeformer(BL_DeformableGameObject *gameobj,
+BL_ShapeDeformer::BL_ShapeDeformer(KX_GameObject *gameobj,
                                    Object *bmeshobj_old,
                                    Object *bmeshobj_new,
-                                   RAS_MeshObject *mesh,
-                                   bool release_object,
-                                   bool recalc_normal,
+                                   RAS_Mesh *mesh,
                                    BL_ArmatureObject *arma)
-	:BL_SkinDeformer(gameobj, bmeshobj_old, bmeshobj_new, mesh, release_object, recalc_normal, arma),
+	:BL_SkinDeformer(gameobj, bmeshobj_old, bmeshobj_new, mesh, arma),
 	m_useShapeDrivers(false),
 	m_lastShapeUpdate(-1)
 {
@@ -105,45 +85,28 @@ BL_ShapeDeformer::~BL_ShapeDeformer()
 	}
 }
 
-RAS_Deformer *BL_ShapeDeformer::GetReplica()
-{
-	BL_ShapeDeformer *result;
-
-	result = new BL_ShapeDeformer(*this);
-	result->ProcessReplica();
-	return result;
-}
-
-void BL_ShapeDeformer::ProcessReplica()
-{
-	BL_SkinDeformer::ProcessReplica();
-	m_lastShapeUpdate = -1;
-
-	m_key = m_key ? BKE_key_copy(G.main, m_key) : nullptr;
-}
-
 bool BL_ShapeDeformer::LoadShapeDrivers(KX_GameObject *parent)
 {
 	// Only load shape drivers if we have a key
-	if (GetKey() == nullptr) {
+	if (!m_key) {
 		m_useShapeDrivers = false;
 		return false;
 	}
 
 	// Fix drivers since BL_ArmatureObject makes copies
-	if (parent->GetGameObjectType() == SCA_IObject::OBJ_ARMATURE && GetKey()->adt) {
-		BL_ArmatureObject *arma = (BL_ArmatureObject *)parent;
+	if (m_armobj && m_key->adt) {
 		FCurve *fcu;
 
-		for (fcu = (FCurve *)GetKey()->adt->drivers.first; fcu; fcu = (FCurve *)fcu->next) {
+		for (fcu = (FCurve *)m_key->adt->drivers.first; fcu; fcu = (FCurve *)fcu->next) {
 
 			DriverVar *dvar;
 			for (dvar = (DriverVar *)fcu->driver->variables.first; dvar; dvar = (DriverVar *)dvar->next) {
 				DRIVER_TARGETS_USED_LOOPER_BEGIN(dvar)
 				{
 					if (dtar->id) {
-						if ((Object *)dtar->id == arma->GetOrigArmatureObject())
-							dtar->id = (ID *)arma->GetArmatureObject();
+						if ((Object *)dtar->id == m_armobj->GetOrigArmatureObject()) {
+							dtar->id = (ID *)m_armobj->GetArmatureObject();
+						}
 					}
 				}
 				DRIVER_TARGETS_LOOPER_END;
@@ -162,13 +125,12 @@ bool BL_ShapeDeformer::LoadShapeDrivers(KX_GameObject *parent)
 bool BL_ShapeDeformer::ExecuteShapeDrivers()
 {
 	if (m_useShapeDrivers && PoseUpdated()) {
-
-		Scene *scene = KX_GetActiveScene()->GetBlenderScene();
+		// We don't need an actual time, just use 0
+		Scene *scene = m_armobj->GetScene()->GetBlenderScene();
 		ViewLayer *view_layer = BKE_view_layer_default_view(scene);
 		Depsgraph *depsgraph = BKE_scene_get_depsgraph(scene, view_layer, false);
 
-		// We don't need an actual time, just use 0
-		BKE_animsys_evaluate_animdata(depsgraph, scene, &GetKey()->id, GetKey()->adt, 0.f, ADT_RECALC_DRIVERS);
+		BKE_animsys_evaluate_animdata(depsgraph, nullptr, &m_key->id, m_key->adt, 0.f, ADT_RECALC_DRIVERS);
 
 		ForceUpdate();
 		m_bDynamic = true;
@@ -177,7 +139,7 @@ bool BL_ShapeDeformer::ExecuteShapeDrivers()
 	return false;
 }
 
-bool BL_ShapeDeformer::Update()
+bool BL_ShapeDeformer::UpdateInternal(bool recalcNormal)
 {
 	bool bShapeUpdate = false;
 	bool bSkinUpdate = false;
@@ -185,9 +147,9 @@ bool BL_ShapeDeformer::Update()
 	ExecuteShapeDrivers();
 
 	/* See if the object shape has changed */
-	if (m_lastShapeUpdate != m_gameobj->GetLastFrame()) {
+	if (m_lastShapeUpdate != m_lastFrame) {
 		/* the key coefficient have been set already, we just need to blend the keys */
-		Object *blendobj = m_gameobj->GetBlendObject();
+		Object *blendobj = m_gameobj->GetBlenderObject();
 
 		/* we will blend the key directly in m_transverts array: it is used by armature as the start position */
 		/* m_key can be nullptr in case of Modifier deformer */
@@ -199,7 +161,7 @@ bool BL_ShapeDeformer::Update()
 		//	VerifyStorage();
 
 		//	per_keyblock_weights = BKE_keyblock_get_per_block_weights(blendobj, m_key, &cache);
-		//	BKE_key_evaluate_relative(0, m_bmesh->totvert, m_bmesh->totvert, (char *)(float *)m_transverts,
+		//	BKE_key_evaluate_relative(0, m_bmesh->totvert, m_bmesh->totvert, (char *)(float *)m_transverts.data(),
 		//	                          m_key, nullptr, per_keyblock_weights, 0); /* last arg is ignored */
 		//	BKE_keyblock_free_per_block_weights(m_key, per_keyblock_weights, &cache);
 
@@ -210,7 +172,7 @@ bool BL_ShapeDeformer::Update()
 		// The weight array are ultimately deleted when the skin mesh is destroyed
 
 		/* Update the current frame */
-		m_lastShapeUpdate = m_gameobj->GetLastFrame();
+		m_lastShapeUpdate = m_lastFrame;
 
 		// As we have changed, the mesh, the skin deformer must update as well.
 		// This will force the update
@@ -218,18 +180,10 @@ bool BL_ShapeDeformer::Update()
 		bShapeUpdate = true;
 	}
 	// check for armature deform
-	bSkinUpdate = BL_SkinDeformer::UpdateInternal(bShapeUpdate && m_bDynamic);
+	bSkinUpdate = BL_SkinDeformer::UpdateInternal(bShapeUpdate && m_bDynamic, recalcNormal);
 
 	// non dynamic deformer = Modifer without armature and shape keys, no need to create storage
 	if (!bSkinUpdate && bShapeUpdate && m_bDynamic) {
-		// this means that there is no armature, we still need to
-		// update the normal (was not done after shape key calculation)
-
-#ifdef __NLA_DEFNORMALS
-		if (m_recalcNormal)
-			RecalcNormals();
-#endif
-
 		// We also need to handle transverts now (used to be in BL_SkinDeformer::Apply())
 		UpdateTransverts();
 		bSkinUpdate = true;
@@ -238,7 +192,25 @@ bool BL_ShapeDeformer::Update()
 	return bSkinUpdate;
 }
 
+bool BL_ShapeDeformer::Update()
+{
+	return UpdateInternal(true);
+}
+
 Key *BL_ShapeDeformer::GetKey()
 {
 	return m_key;
+}
+
+bool BL_ShapeDeformer::GetShape(std::vector<float> &shape) const
+{
+	shape.clear();
+	// this check is normally superfluous: a shape deformer can only be created if the mesh
+	// has relative keys
+	if (m_key && m_key->type == KEY_RELATIVE) {
+		for (KeyBlock *kb = (KeyBlock *)m_key->block.first; kb; kb = (KeyBlock *)kb->next) {
+			shape.push_back(kb->curval);
+		}
+	}
+	return !shape.empty();
 }

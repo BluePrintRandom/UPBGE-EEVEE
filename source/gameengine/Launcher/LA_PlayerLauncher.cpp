@@ -48,7 +48,7 @@ extern "C" {
 
 #include "KX_PythonInit.h"
 
-#include "GPG_Canvas.h" 
+#include "GPG_Canvas.h"
 
 #include "GHOST_ISystem.h"
 
@@ -57,8 +57,8 @@ extern "C" {
 #include "CM_Message.h"
 
 LA_PlayerLauncher::LA_PlayerLauncher(GHOST_ISystem *system, GHOST_IWindow *window, Main *maggie, Scene *scene, GlobalSettings *gs,
-								 RAS_Rasterizer::StereoMode stereoMode, int samples, int argc, char **argv, const std::string& pythonMainLoop)
-	:LA_Launcher(system, maggie, scene, gs, stereoMode, samples, argc, argv),
+                                     RAS_Rasterizer::StereoMode stereoMode, int samples, int argc, char **argv, const std::string& pythonMainLoop)
+	:LA_Launcher(system, maggie, scene, gs, stereoMode, samples, false, argc, argv),
 	m_mainWindow(window),
 	m_pythonMainLoop(pythonMainLoop)
 {
@@ -67,6 +67,8 @@ LA_PlayerLauncher::LA_PlayerLauncher(GHOST_ISystem *system, GHOST_IWindow *windo
 LA_PlayerLauncher::~LA_PlayerLauncher()
 {
 }
+
+#ifdef WITH_PYTHON
 
 bool LA_PlayerLauncher::GetPythonMainLoopCode(std::string& pythonCode, std::string& pythonFileName)
 {
@@ -99,6 +101,8 @@ void LA_PlayerLauncher::RunPythonMainLoop(const std::string& pythonCode)
 	LA_Launcher::RunPythonMainLoop(pythonCode);
 }
 
+#endif  // WITH_PYTHON
+
 RAS_Rasterizer::DrawType LA_PlayerLauncher::GetRasterizerDrawMode()
 {
 	const SYS_SystemHandle& syshandle = SYS_GetSystem();
@@ -111,24 +115,13 @@ RAS_Rasterizer::DrawType LA_PlayerLauncher::GetRasterizerDrawMode()
 	return RAS_Rasterizer::RAS_TEXTURED;
 }
 
-bool LA_PlayerLauncher::GetUseAlwaysExpandFraming()
-{
-	return false;
-}
-
 void LA_PlayerLauncher::InitCamera()
 {
 }
 
-void LA_PlayerLauncher::InitPython()
+void LA_PlayerLauncher::SetWindowOrder(short order)
 {
-}
-
-void LA_PlayerLauncher::ExitPython()
-{
-#ifdef WITH_PYTHON
-	exitGamePlayerPythonScripting();
-#endif  // WITH_PYTHON
+	m_mainWindow->setOrder((order == 0) ? GHOST_kWindowOrderBottom : GHOST_kWindowOrderTop);
 }
 
 void LA_PlayerLauncher::InitEngine()
@@ -145,7 +138,7 @@ void LA_PlayerLauncher::ExitEngine()
 	BKE_sound_exit();
 }
 
-bool LA_PlayerLauncher::EngineNextFrame()
+KX_ExitInfo LA_PlayerLauncher::EngineNextFrame()
 {
 	if (m_inputDevice->GetInput(SCA_IInputDevice::WINRESIZE).Find(SCA_InputEvent::ACTIVE)) {
 		GHOST_Rect bnds;
@@ -158,7 +151,7 @@ bool LA_PlayerLauncher::EngineNextFrame()
 	return LA_Launcher::EngineNextFrame();
 }
 
-RAS_ICanvas *LA_PlayerLauncher::CreateCanvas()
+RAS_ICanvas *LA_PlayerLauncher::CreateCanvas(RAS_Rasterizer *rasty)
 {
-	return (new GPG_Canvas(m_rasterizer, m_mainWindow));
+	return (new GPG_Canvas(rasty, m_mainWindow));
 }

@@ -214,7 +214,7 @@ extern ExpDesc InvalidImageModeDesc;
 extern ExpDesc SceneInvalidDesc;
 extern ExpDesc CameraInvalidDesc;
 extern ExpDesc ObserverInvalidDesc;
-extern ExpDesc FrameBufferInvalidDesc;
+extern ExpDesc OffScreenInvalidDesc;
 extern ExpDesc MirrorInvalidDesc;
 extern ExpDesc MirrorSizeInvalidDesc;
 extern ExpDesc MirrorNormalInvalidDesc;

@@ -30,13 +30,47 @@
  */
 
 #include "SG_Controller.h"
+#include "SG_Interpolator.h"
 
-void SG_Controller::SetNode(SG_Node *node)
+#include <stdint.h> // For intptr_t.
+
+SG_Controller::SG_Controller()
+	:m_modified(true),
+	m_time(0.0)
 {
-	m_node = node; // no checks yet ?
 }
 
-void SG_Controller::ClearNode()
+bool SG_Controller::Update(SG_Node *node)
 {
-	m_node = nullptr;
+	if (!m_modified) {
+		return false;
+	}
+
+	m_modified = false;
+
+	for (SG_Interpolator& interp : m_interpolators) {
+		interp.Execute(m_time);
+	}
+
+	return true;
+}
+
+void SG_Controller::SetSimulatedTime(double time)
+{
+	m_time = time;
+	m_modified = true;
+}
+
+void SG_Controller::SetOption(SG_Controller::SG_ControllerOption option, bool value)
+{
+}
+
+void SG_Controller::AddInterpolator(const SG_Interpolator& interp)
+{
+	m_interpolators.push_back(interp);
+}
+
+bool SG_Controller::Empty() const
+{
+	return m_interpolators.empty();
 }

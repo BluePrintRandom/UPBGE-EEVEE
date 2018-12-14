@@ -27,11 +27,11 @@
 #ifndef __SCA_INPUTEVENT_H__
 #define __SCA_INPUTEVENT_H__
 
-#include "EXP_PyObjectPlus.h"
+#include "EXP_Value.h"
 
 #include <vector>
 
-class SCA_InputEvent : public PyObjectPlus
+class SCA_InputEvent : public EXP_Value
 {
 Py_Header
 public:
@@ -44,6 +44,8 @@ public:
 
 	SCA_InputEvent();
 	SCA_InputEvent(int type);
+
+	virtual std::string GetName();
 
 	/// Clear status, values and queue but keep status and value from before.
 	void Clear();
@@ -66,21 +68,20 @@ public:
 	int m_type;
 
 #ifdef WITH_PYTHON
-	virtual PyObject *py_repr()
-	{
-		return PyUnicode_FromString("SCA_InputEvent");
-	}
+	unsigned int get_status_size();
+	PyObject *get_status_item(unsigned int index);
+	unsigned int get_queue_size();
+	PyObject *get_queue_item(unsigned int index);
+	unsigned int get_values_size();
+	PyObject *get_values_item(unsigned int index);
 
-	static int get_status_size_cb(void *self_v);
-	static PyObject *get_status_item_cb(void *self_v, int index);
-	static int get_queue_size_cb(void *self_v);
-	static PyObject *get_queue_item_cb(void *self_v, int index);
-	static int get_values_size_cb(void *self_v);
-	static PyObject *get_values_item_cb(void *self_v, int index);
-
-	static PyObject *pyattr_get_status(PyObjectPlus *self_v, const KX_PYATTRIBUTE_DEF *attrdef);
-	static PyObject *pyattr_get_queue(PyObjectPlus *self_v, const KX_PYATTRIBUTE_DEF *attrdef);
-	static PyObject *pyattr_get_values(PyObjectPlus *self_v, const KX_PYATTRIBUTE_DEF *attrdef);
+	static PyObject *pyattr_get_status(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef);
+	static PyObject *pyattr_get_queue(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef);
+	static PyObject *pyattr_get_values(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef);
+	static PyObject *pyattr_get_inactive(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef);
+	static PyObject *pyattr_get_active(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef);
+	static PyObject *pyattr_get_activated(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef);
+	static PyObject *pyattr_get_released(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef);
 #endif
 };
 

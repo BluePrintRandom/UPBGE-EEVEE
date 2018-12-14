@@ -37,7 +37,7 @@
 #include "KX_ClientObjectInfo.h"
 
 class KX_Scene;
-class PHY_CollData;
+class PHY_ICollData;
 
 class KX_NearSensor : public KX_CollisionSensor
 {
@@ -67,16 +67,20 @@ public:
 #endif
 	virtual ~KX_NearSensor(); 
 	virtual void SynchronizeTransform();
-	virtual CValue* GetReplica();
+	virtual EXP_Value* GetReplica();
 	virtual void ProcessReplica();
 	virtual void SetPhysCtrlRadius();
 	virtual bool Evaluate();
 
 	virtual void ReParent(SCA_IObject* parent);
-	virtual bool	NewHandleCollision(void* obj1,void* obj2,
-	                                   const PHY_CollData * coll_data);
-	virtual bool	BroadPhaseFilterCollision(void*obj1,void*obj2);
-	virtual bool	BroadPhaseSensorFilterCollision(void* obj1,void* obj2) { return false; }
+
+	virtual bool NewHandleCollision(PHY_IPhysicsController *ctrl1, PHY_IPhysicsController *ctrl2, const PHY_ICollData *colldata);
+	virtual bool BroadPhaseFilterCollision(PHY_IPhysicsController *ctrl1, PHY_IPhysicsController *ctrl2);
+	virtual bool BroadPhaseSensorFilterCollision(PHY_IPhysicsController *ctrl1, PHY_IPhysicsController *ctrl2)
+	{
+		return false;
+	}
+
 	virtual sensortype GetSensorType() { return ST_NEAR; }
 
 #ifdef WITH_PYTHON
@@ -88,7 +92,7 @@ public:
 	//No methods
 
 	//This method is used to make sure the distance does not exceed the reset distance
-	static int CheckResetDistance(PyObjectPlus *self, const PyAttributeDef*)
+	static int CheckResetDistance(EXP_PyObjectPlus *self, const PyAttributeDef*)
 	{
 		KX_NearSensor* sensor = reinterpret_cast<KX_NearSensor*>(self);
 

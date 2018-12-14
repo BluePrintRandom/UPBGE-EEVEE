@@ -27,9 +27,9 @@
 #ifndef __SCA_PYTHONJOYSTICK_H__
 #define __SCA_PYTHONJOYSTICK_H__
 
-#include "EXP_PyObjectPlus.h"
+#include "EXP_Value.h"
 
-class SCA_PythonJoystick : public PyObjectPlus
+class SCA_PythonJoystick : public EXP_Value
 {
 	Py_Header
 private:
@@ -42,14 +42,14 @@ public:
 	SCA_PythonJoystick(class DEV_Joystick* joystick, int joyindex);
 	virtual ~SCA_PythonJoystick();
 
-#ifdef WITH_PYTHON
-	virtual PyObject* py_repr(void);
+	virtual std::string GetName();
 
-	static PyObject*	pyattr_get_num_x(PyObjectPlus *self_v, const KX_PYATTRIBUTE_DEF *attrdef);
-	static PyObject*	pyattr_get_active_buttons(PyObjectPlus *self_v, const KX_PYATTRIBUTE_DEF *attrdef);
-	static PyObject*	pyattr_get_hat_values(PyObjectPlus *self_v, const KX_PYATTRIBUTE_DEF *attrdef);
-	static PyObject*	pyattr_get_axis_values(PyObjectPlus *self_v, const KX_PYATTRIBUTE_DEF *attrdef);
-	static PyObject*	pyattr_get_name(PyObjectPlus *self_v, const KX_PYATTRIBUTE_DEF *attrdef);
+#ifdef WITH_PYTHON
+	static PyObject*	pyattr_get_num_x(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef);
+	static PyObject*	pyattr_get_active_buttons(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef);
+	static PyObject*	pyattr_get_hat_values(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef);
+	static PyObject*	pyattr_get_axis_values(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef);
+	static PyObject*	pyattr_get_name(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef);
 #endif
 };
 

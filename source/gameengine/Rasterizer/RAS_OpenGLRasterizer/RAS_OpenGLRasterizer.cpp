@@ -30,7 +30,7 @@
  */
 
 #include "RAS_OpenGLRasterizer.h"
-#include "RAS_IPolygonMaterial.h"
+#include "RAS_IMaterial.h"
 
 #include "GPU_glew.h"
 
@@ -40,15 +40,9 @@
 #include "GPU_extensions.h"
 #include "GPU_material.h"
 #include "GPU_shader.h"
-#include "GPU_texture.h"
-#include "GPU_matrix.h"
 
 extern "C" {
 #  include "BLF_api.h"
-#  include "BLI_math.h"
-#  include "BKE_DerivedMesh.h"
-#  include "DNA_material_types.h"
-#  include "GPU_immediate.h"
 }
 
 #include "MEM_guardedalloc.h"
@@ -63,13 +57,12 @@ static const int openGLEnableBitEnums[] = {
 	GL_ALPHA_TEST, // RAS_ALPHA_TEST
 	GL_SCISSOR_TEST, // RAS_SCISSOR_TEST
 	GL_TEXTURE_2D, // RAS_TEXTURE_2D
-	GL_TEXTURE_CUBE_MAP, // RAS_TEXTURE_CUBE_MAP
+	GL_TEXTURE_CUBE_MAP_ARB, // RAS_TEXTURE_CUBE_MAP
 	GL_BLEND, // RAS_BLEND
 	GL_COLOR_MATERIAL, // RAS_COLOR_MATERIAL
 	GL_CULL_FACE, // RAS_CULL_FACE
-	GL_FOG, // RAS_FOG
 	GL_LIGHTING, // RAS_LIGHTING
-	GL_MULTISAMPLE, // RAS_MULTISAMPLE
+	GL_MULTISAMPLE_ARB, // RAS_MULTISAMPLE
 	GL_POLYGON_STIPPLE, // RAS_POLYGON_STIPPLE
 	GL_POLYGON_OFFSET_FILL, // RAS_POLYGON_OFFSET_FILL
 	GL_POLYGON_OFFSET_LINE, // RAS_POLYGON_OFFSET_LINE
@@ -115,23 +108,23 @@ static const int openGLBlendFuncEnums[] = {
 
 RAS_OpenGLRasterizer::ScreenPlane::ScreenPlane()
 {
-	glGenVertexArrays(1, &m_vao);
 	// Generate the VBO and IBO for screen overlay plane.
 	glGenBuffers(1, &m_vbo);
 	glGenBuffers(1, &m_ibo);
-
-	glBindVertexArray(m_vao);
+	glGenVertexArrays(1, &m_vao);
 
 	// Vertexes for screen plane, it contains the vertex position (3 floats) and the vertex uv after (2 floats, total size = 5 floats).
 	static const float vertices[] = {
 		//   3f position   |   2f UV
 		-1.0f, -1.0f, 1.0f, 0.0f, 0.0f,
 		-1.0f,  1.0f, 1.0f, 0.0f, 1.0f,
-		 1.0f,  1.0f, 1.0f, 1.0f, 1.0f,
-		 1.0f, -1.0f, 1.0f, 1.0f, 0.0f
+		1.0f,  1.0f, 1.0f, 1.0f, 1.0f,
+		1.0f, -1.0f, 1.0f, 1.0f, 0.0f
 	};
 	// Indices for screen plane.
 	static const GLubyte indices[] = {3, 2, 1, 0};
+
+	glBindVertexArray(m_vao);
 
 	// Send indices in the sreen plane IBO.
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_ibo);
@@ -141,23 +134,23 @@ RAS_OpenGLRasterizer::ScreenPlane::ScreenPlane()
 	glBindBuffer(GL_ARRAY_BUFFER, m_vbo);
 	glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
 
-	// VAO -> vertices
-	glEnableVertexAttribArray(0);
-	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(float) * 5, 0);
+	// Enable vertex/uv pointer.
+	glEnableClientState(GL_VERTEX_ARRAY);
+	glEnableClientState(GL_TEXTURE_COORD_ARRAY);
 
-	// VAO -> texcoords
-	glEnableVertexAttribArray(1);
-	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(float) * 5, ((char *)nullptr) + sizeof(float) * 3);
+	// Bind vertex/uv pointer with VBO offset. (position = 0, uv = 3 * float, stride = 5 * float).
+	glVertexPointer(3, GL_FLOAT, sizeof(float) * 5, 0);
+	glTexCoordPointer(2, GL_FLOAT, sizeof(float) * 5, ((char *)nullptr) + sizeof(float) * 3);
 
 	// Unbind VBO
 	glBindBuffer(GL_ARRAY_BUFFER, 0);
 
-	// VAO -> Unbind
 	glBindVertexArray(0);
 }
 
 RAS_OpenGLRasterizer::ScreenPlane::~ScreenPlane()
 {
+	// Delete screen overlay plane VBO/IBO/VAO
 	glDeleteVertexArrays(1, &m_vao);
 	glDeleteBuffers(1, &m_vbo);
 	glDeleteBuffers(1, &m_ibo);
@@ -165,13 +158,10 @@ RAS_OpenGLRasterizer::ScreenPlane::~ScreenPlane()
 
 inline void RAS_OpenGLRasterizer::ScreenPlane::Render()
 {
-	// Bind screen plane VAO
 	glBindVertexArray(m_vao);
-
 	// Draw in triangle fan mode to reduce IBO size.
 	glDrawElements(GL_TRIANGLE_FAN, 4, GL_UNSIGNED_BYTE, 0);
 
-	// Disable VAO.
 	glBindVertexArray(0);
 }
 
@@ -205,6 +195,16 @@ void RAS_OpenGLRasterizer::Disable(RAS_Rasterizer::EnableBit bit)
 	glDisable(openGLEnableBitEnums[bit]);
 }
 
+void RAS_OpenGLRasterizer::EnableLight(unsigned short count)
+{
+	glDisable((GLenum)(GL_LIGHT0 + count));
+}
+
+void RAS_OpenGLRasterizer::DisableLight(unsigned short count)
+{
+	glDisable((GLenum)(GL_LIGHT0 + count));
+}
+
 void RAS_OpenGLRasterizer::SetDepthFunc(RAS_Rasterizer::DepthFunc func)
 {
 	glDepthFunc(openGLDepthFuncEnums[func]);
@@ -215,8 +215,37 @@ void RAS_OpenGLRasterizer::SetBlendFunc(RAS_Rasterizer::BlendFunc src, RAS_Raste
 	glBlendFunc(openGLBlendFuncEnums[src], openGLBlendFuncEnums[dst]);
 }
 
+void RAS_OpenGLRasterizer::Init()
+{
+	glShadeModel(GL_SMOOTH);
+}
+
+void RAS_OpenGLRasterizer::SetAmbient(const mt::vec3& amb, float factor)
+{
+	float ambient[] = {amb.x * factor, amb.y * factor, amb.z * factor, 1.0f};
+	glLightModelfv(GL_LIGHT_MODEL_AMBIENT, ambient);
+}
+
+void RAS_OpenGLRasterizer::SetFog(short type, float start, float dist, float intensity, const mt::vec3& color)
+{
+	float params[4] = {color[0], color[1], color[2], 1.0f};
+	glFogi(GL_FOG_MODE, GL_LINEAR);
+	glFogf(GL_FOG_DENSITY, intensity / 10.0f);
+	glFogf(GL_FOG_START, start);
+	glFogf(GL_FOG_END, start + dist);
+	glFogfv(GL_FOG_COLOR, params);
+}
+
+void RAS_OpenGLRasterizer::Exit()
+{
+	if (GLEW_EXT_separate_specular_color || GLEW_VERSION_1_2) {
+		glLightModeli(GL_LIGHT_MODEL_COLOR_CONTROL, GL_SINGLE_COLOR);
+	}
+}
+
 void RAS_OpenGLRasterizer::BeginFrame()
 {
+	glShadeModel(GL_SMOOTH);
 }
 
 void RAS_OpenGLRasterizer::SetDepthMask(RAS_Rasterizer::DepthMask depthmask)
@@ -273,27 +302,14 @@ void RAS_OpenGLRasterizer::DrawOverlayPlane()
 	m_screenPlane.Render();
 }
 
-// Code for hooking into Blender's mesh drawing for derived meshes.
-// If/when we use more of Blender's drawing code, we may be able to
-// clean this up
-static int current_blmat_nr;
-static GPUVertexAttribs current_gpu_attribs;
-static int CheckMaterialDM(int matnr, void *attribs)
-{
-	// only draw the current material
-	if (matnr != current_blmat_nr) {
-		return 0;
-	}
-	GPUVertexAttribs *gattribs = (GPUVertexAttribs *)attribs;
-	if (gattribs) {
-		memcpy(gattribs, &current_gpu_attribs, sizeof(GPUVertexAttribs));
-	}
-	return 1;
-}
-
 void RAS_OpenGLRasterizer::SetViewport(int x, int y, int width, int height)
 {
 	glViewport(x, y, width, height);
+}
+
+void RAS_OpenGLRasterizer::GetViewport(int *rect)
+{
+	glGetIntegerv(GL_VIEWPORT, rect);
 }
 
 void RAS_OpenGLRasterizer::SetScissor(int x, int y, int width, int height)
@@ -305,11 +321,37 @@ void RAS_OpenGLRasterizer::SetLines(bool enable)
 {
 	if (enable) {
 		glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-		glLineWidth(1.0f);
 	}
 	else {
 		glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 	}
+}
+
+void RAS_OpenGLRasterizer::SetSpecularity(float specX,
+                                          float specY,
+                                          float specZ,
+                                          float specval)
+{
+	GLfloat mat_specular[] = {specX, specY, specZ, specval};
+	glMaterialfv(GL_FRONT_AND_BACK, GL_SPECULAR, mat_specular);
+}
+
+void RAS_OpenGLRasterizer::SetShinyness(float shiny)
+{
+	GLfloat mat_shininess[] = { shiny };
+	glMaterialfv(GL_FRONT_AND_BACK, GL_SHININESS, mat_shininess);
+}
+
+void RAS_OpenGLRasterizer::SetDiffuse(float difX, float difY, float difZ, float diffuse)
+{
+	GLfloat mat_diffuse[] = {difX, difY, difZ, diffuse};
+	glMaterialfv(GL_FRONT_AND_BACK, GL_DIFFUSE, mat_diffuse);
+}
+
+void RAS_OpenGLRasterizer::SetEmissive(float eX, float eY, float eZ, float e)
+{
+	GLfloat mat_emit[] = {eX, eY, eZ, e};
+	glMaterialfv(GL_FRONT_AND_BACK, GL_EMISSION, mat_emit);
 }
 
 void RAS_OpenGLRasterizer::SetPolygonOffset(float mult, float add)
@@ -317,18 +359,16 @@ void RAS_OpenGLRasterizer::SetPolygonOffset(float mult, float add)
 	glPolygonOffset(mult, add);
 }
 
-void RAS_OpenGLRasterizer::EnableClipPlane(int numplanes)
+void RAS_OpenGLRasterizer::EnableClipPlane(unsigned short index, const mt::vec4& plane)
 {
-	for (int i = 0; i < numplanes; ++i) {
-		glEnable(GL_CLIP_DISTANCE0 + i);
-	}
+	double planev[4] = {plane.x, plane.y, plane.z, plane.w};
+	glClipPlane(GL_CLIP_PLANE0 + index, planev);
+	glEnable(GL_CLIP_PLANE0 + index);
 }
 
-void RAS_OpenGLRasterizer::DisableClipPlane(int numplanes)
+void RAS_OpenGLRasterizer::DisableClipPlane(unsigned short index)
 {
-	for (int i = 0; i < numplanes; ++i) {
-		glDisable(GL_CLIP_DISTANCE0 + i);
-	}
+	glDisable(GL_CLIP_PLANE0 + index);
 }
 
 void RAS_OpenGLRasterizer::SetFrontFace(bool ccw)
@@ -341,10 +381,17 @@ void RAS_OpenGLRasterizer::SetFrontFace(bool ccw)
 	}
 }
 
+void RAS_OpenGLRasterizer::EnableLights()
+{
+	glColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE);
+	glLightModeli(GL_LIGHT_MODEL_TWO_SIDE, GL_TRUE);
+	glLightModeli(GL_LIGHT_MODEL_LOCAL_VIEWER, (m_rasterizer->GetCameraOrtho()) ? GL_FALSE : GL_TRUE);
+}
+
 void RAS_OpenGLRasterizer::DisableForText()
 {
 	for (int i = 0; i < RAS_Texture::MaxUnits; i++) {
-		glActiveTexture(GL_TEXTURE0 + i);
+		glActiveTextureARB(GL_TEXTURE0_ARB + i);
 
 		if (GLEW_ARB_texture_cube_map) {
 			Disable(RAS_Rasterizer::RAS_TEXTURE_CUBE_MAP);
@@ -352,19 +399,18 @@ void RAS_OpenGLRasterizer::DisableForText()
 		Disable(RAS_Rasterizer::RAS_TEXTURE_2D);
 	}
 
-	glActiveTexture(GL_TEXTURE0);
+	glActiveTextureARB(GL_TEXTURE0_ARB);
 }
 
-void RAS_OpenGLRasterizer::RenderText3D(
-        int fontid, const std::string& text, int size, int dpi,
-        const float color[4], const float mat[16], float aspect)
+void RAS_OpenGLRasterizer::RenderText3D(int fontid, const std::string& text, int size, int dpi,
+                                        const float color[4], const float mat[16], float aspect)
 {
 	/* gl prepping */
 	m_rasterizer->DisableForText();
 	SetFrontFace(true);
 
 	/* the actual drawing */
-	BLF_color4fv(fontid, color);
+	glColor4fv(color);
 
 	/* multiply the text matrix by the object matrix */
 	BLF_enable(fontid, BLF_MATRIX | BLF_ASPECT);
@@ -384,69 +430,119 @@ void RAS_OpenGLRasterizer::RenderText3D(
 	m_rasterizer->SetAlphaBlend(GPU_BLEND_SOLID);
 }
 
+void RAS_OpenGLRasterizer::PushMatrix()
+{
+	glPushMatrix();
+}
+
+void RAS_OpenGLRasterizer::PopMatrix()
+{
+	glPopMatrix();
+}
+
+void RAS_OpenGLRasterizer::SetMatrixMode(RAS_Rasterizer::MatrixMode mode)
+{
+	glMatrixMode(openGLMatrixModeEnums[mode]);
+}
+
+void RAS_OpenGLRasterizer::MultMatrix(const float mat[16])
+{
+	glMultMatrixf(mat);
+}
+
+void RAS_OpenGLRasterizer::LoadMatrix(const float mat[16])
+{
+	glLoadMatrixf(mat);
+}
+
+void RAS_OpenGLRasterizer::LoadIdentity()
+{
+	glLoadIdentity();
+}
+
+void RAS_OpenGLRasterizer::MotionBlur(unsigned short state, float value)
+{
+	if (state) {
+		if (state == 1) {
+			// bugfix:load color buffer into accum buffer for the first time(state=1)
+			glAccum(GL_LOAD, 1.0f);
+			m_rasterizer->SetMotionBlur(2);
+		}
+		else if (value >= 0.0f && value <= 1.0f) {
+			glAccum(GL_MULT, value);
+			glAccum(GL_ACCUM, 1.0f - value);
+			glAccum(GL_RETURN, 1.0f);
+			glFlush();
+		}
+	}
+}
+
 void RAS_OpenGLRasterizer::PrintHardwareInfo()
 {
 	CM_Message("GL_VENDOR: " << glGetString(GL_VENDOR));
 	CM_Message("GL_RENDERER: " << glGetString(GL_RENDERER));
-	CM_Message("GL_VERSION:  " << glGetString(GL_VERSION));
-	bool support=0;
+	CM_Message("GL_VERSION: " << glGetString(GL_VERSION));
+	CM_Message("GL_SHADING_LANGUAGE_VERSION: " << glGetString(GL_SHADING_LANGUAGE_VERSION));
+	bool support = 0;
 	CM_Message("Supported Extensions...");
-	CM_Message(" GL_ARB_shader_objects supported?       "<< (GLEW_ARB_shader_objects?"yes.":"no."));
-	CM_Message(" GL_ARB_geometry_shader4 supported?     "<< (GLEW_ARB_geometry_shader4 ? "yes." : "no."));
+	CM_Message(" GL_ARB_shader_objects supported?       " << (GLEW_ARB_shader_objects ? "yes." : "no."));
+	CM_Message(" GL_ARB_geometry_shader4 supported?     " << (GLEW_ARB_geometry_shader4 ? "yes." : "no."));
 
-	support= GLEW_ARB_vertex_shader;
-	CM_Message(" GL_ARB_vertex_shader supported?        "<< (support?"yes.":"no."));
+	support = GLEW_ARB_vertex_shader;
+	CM_Message(" GL_ARB_vertex_shader supported?        " << (support ? "yes." : "no."));
 	if (support) {
 		CM_Message(" ----------Details----------");
-		int max=0;
-		glGetIntegerv(GL_MAX_VERTEX_UNIFORM_COMPONENTS, (GLint*)&max);
+		int max = 0;
+		glGetIntegerv(GL_MAX_VERTEX_UNIFORM_COMPONENTS_ARB, (GLint *)&max);
 		CM_Message("  Max uniform components." << max);
 
-		glGetIntegerv(GL_MAX_VARYING_FLOATS, (GLint*)&max);
+		glGetIntegerv(GL_MAX_VARYING_FLOATS_ARB, (GLint *)&max);
 		CM_Message("  Max varying floats." << max);
 
-		glGetIntegerv(GL_MAX_VERTEX_TEXTURE_IMAGE_UNITS, (GLint*)&max);
+		glGetIntegerv(GL_MAX_VERTEX_TEXTURE_IMAGE_UNITS_ARB, (GLint *)&max);
 		CM_Message("  Max vertex texture units." << max);
 
-		glGetIntegerv(GL_MAX_VERTEX_ATTRIBS, (GLint*)&max);
+		glGetIntegerv(GL_MAX_VERTEX_ATTRIBS_ARB, (GLint *)&max);
 		CM_Message("  Max vertex attribs." << max);
 
-		glGetIntegerv(GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS, (GLint*)&max);
+		glGetIntegerv(GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS_ARB, (GLint *)&max);
 		CM_Message("  Max combined texture units." << max);
 		CM_Message("");
 	}
 
-	support=GLEW_ARB_fragment_shader;
-	CM_Message(" GL_ARB_fragment_shader supported?      "<< (support?"yes.":"no."));
+	support = GLEW_ARB_fragment_shader;
+	CM_Message(" GL_ARB_fragment_shader supported?      " << (support ? "yes." : "no."));
 	if (support) {
 		CM_Message(" ----------Details----------");
-		int max=0;
-		glGetIntegerv(GL_MAX_FRAGMENT_UNIFORM_COMPONENTS, (GLint*)&max);
+		int max = 0;
+		glGetIntegerv(GL_MAX_FRAGMENT_UNIFORM_COMPONENTS_ARB, (GLint *)&max);
 		CM_Message("  Max uniform components." << max);
 		CM_Message("");
 	}
 
 	support = GLEW_ARB_texture_cube_map;
-	CM_Message(" GL_ARB_texture_cube_map supported?     "<< (support?"yes.":"no."));
+	CM_Message(" GL_ARB_texture_cube_map supported?     " << (support ? "yes." : "no."));
 	if (support) {
 		CM_Message(" ----------Details----------");
-		int size=0;
-		glGetIntegerv(GL_MAX_CUBE_MAP_TEXTURE_SIZE, (GLint*)&size);
+		int size = 0;
+		glGetIntegerv(GL_MAX_CUBE_MAP_TEXTURE_SIZE_ARB, (GLint *)&size);
 		CM_Message("  Max cubemap size." << size);
 		CM_Message("");
 	}
 
 	support = GLEW_ARB_multitexture;
-	CM_Message(" GL_ARB_multitexture supported?         "<< (support?"yes.":"no."));
+	CM_Message(" GL_ARB_multitexture supported?         " << (support ? "yes." : "no."));
 	if (support) {
 		CM_Message(" ----------Details----------");
-		int units=0;
-		glGetIntegerv(GL_MAX_TEXTURE_UNITS, (GLint*)&units);
+		int units = 0;
+		glGetIntegerv(GL_MAX_TEXTURE_UNITS_ARB, (GLint *)&units);
 		CM_Message("  Max texture units available.  " << units);
 		CM_Message("");
 	}
 
-	CM_Message(" GL_ARB_texture_env_combine supported?  "<< (GLEW_ARB_texture_env_combine?"yes.":"no."));
+	CM_Message(" GL_ARB_texture_env_combine supported?  " << (GLEW_ARB_texture_env_combine ? "yes." : "no."));
 
-	CM_Message(" GL_ARB_draw_instanced supported?  "<< (GLEW_ARB_draw_instanced?"yes.":"no."));
+	//CM_Message(" GL_ARB_texture_non_power_of_two supported?  " << (GPU_full_non_power_of_two_support() ? "yes." : "no."));
+
+	CM_Message(" GL_ARB_draw_instanced supported?  " << (GLEW_ARB_draw_instanced ? "yes." : "no."));
 }

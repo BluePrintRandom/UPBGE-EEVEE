@@ -30,55 +30,104 @@
 #include <vector>
 #include <set>
 #include <map>
-class CcdGraphicController;
 #include "LinearMath/btVector3.h"
 #include "LinearMath/btTransform.h"
+#include "BulletDynamics/ConstraintSolver/btContactSolverInfo.h"
+
+class PHY_IVehicle;
+class CcdGraphicController;
+class WrapperVehicle;
+class CcdOverlapFilterCallBack;
+class CcdShapeConstructionInfo;
 
 class btTypedConstraint;
 class btSimulationIslandManager;
 class btCollisionDispatcher;
 class btDispatcher;
-
-#include "BulletDynamics/ConstraintSolver/btContactSolverInfo.h"
-
-class WrapperVehicle;
+class btDefaultCollisionConfiguration;
 class btPersistentManifold;
 class btBroadphaseInterface;
 struct btDbvtBroadphase;
+class btGhostPairCallback;
 class btOverlappingPairCache;
 class btIDebugDraw;
 class btDynamicsWorld;
-class PHY_IVehicle;
-class CcdOverlapFilterCallBack;
-class CcdShapeConstructionInfo;
+class btSoftRigidDynamicsWorldMt;
+class btConstraintSolver;
+class btConstraintSolverPoolMt;
+
+/// Find the id of the closest node to a point in a soft body.
+int Ccd_FindClosestNode(btSoftBody *sb, const btVector3& worldPoint);
+
+class CcdDebugDraw : public btIDebugDraw
+{
+private:
+	int m_debugMode;
+
+public:
+	CcdDebugDraw();
+
+	virtual void drawLine(const btVector3& from, const btVector3& to, const btVector3& color);
+	virtual void reportErrorWarning(const char *warningString);
+	virtual void drawContactPoint(const btVector3& PointOnB, const btVector3& normalOnB, float distance, int lifeTime, const btVector3& color);
+	virtual void setDebugMode(int debugMode);
+	virtual int getDebugMode() const;
+	virtual void draw3dText(const btVector3& location, const char *textString);
+};
 
 /** CcdPhysicsEnvironment is an experimental mainloop for physics simulation using optional continuous collision detection.
  * Physics Environment takes care of stepping the simulation and is a container for physics entities.
  * It stores rigidbodies,constraints, materials etc.
  * A derived class may be able to 'construct' entities by loading and/or converting
  */
-class CcdPhysicsEnvironment : public PHY_IPhysicsEnvironment
+class CcdPhysicsEnvironment : public PHY_IPhysicsEnvironment, public mt::SimdClassAllocator
 {
 	friend class CcdOverlapFilterCallBack;
-	btVector3 m_gravity;
 
 	/// Removes the constraint and his references from the owner and the target.
 	void RemoveConstraint(btTypedConstraint *con, bool free);
 	/// Remove a vehicle wrapper.
 	void RemoveVehicle(WrapperVehicle *vehicle, bool free);
+	/// Remove vehicle wrapper used by a physics controller used as chassis.
+	void RemoveVehicle(CcdPhysicsController *ctrl, bool free);
 	/// Restore the constraint if the owner and target are presents.
 	void RestoreConstraint(CcdPhysicsController *ctrl, btTypedConstraint *con);
 
 protected:
-	btIDebugDraw *m_debugDrawer;
+	btVector3 m_gravity;
 
-	class btDefaultCollisionConfiguration *m_collisionConfiguration;
+	CcdDebugDraw m_debugDrawer;
+
+	std::unique_ptr<btDefaultCollisionConfiguration> m_collisionConfiguration;
 	/// broadphase for dynamic world
-	class btBroadphaseInterface *m_broadphase;
+	std::unique_ptr<btBroadphaseInterface> m_broadphase;
 	/// for culling only
-	btOverlappingPairCache *m_cullingCache;
+	std::unique_ptr<btOverlappingPairCache> m_cullingCache;
 	/// broadphase for culling
-	struct btDbvtBroadphase *m_cullingTree;
+	std::unique_ptr<btDbvtBroadphase> m_cullingTree;
+
+	/** use explicit btSoftRigidDynamicsWorld/btDiscreteDynamicsWorld* so that we have access to
+	 * btDiscreteDynamicsWorld::addRigidBody(body,filter,group)
+	 * so that we can set the body collision filter/group at the time of creation
+	 * and not afterwards (breaks the collision system for radar/near sensor)
+	 * Ideally we would like to have access to this function from the btDynamicsWorld interface
+	 */
+	std::unique_ptr<btSoftRigidDynamicsWorldMt> m_dynamicsWorld;
+
+	std::unique_ptr<btConstraintSolverPoolMt> m_solverPool;
+	std::vector<btConstraintSolver *> m_solvers;
+
+	std::unique_ptr<CcdOverlapFilterCallBack> m_filterCallback;
+
+	std::unique_ptr<btGhostPairCallback> m_ghostPairCallback;
+
+	std::unique_ptr<btCollisionDispatcher> m_dispatcher;
+
+	std::set<CcdPhysicsController *> m_controllers;
+	std::vector<WrapperVehicle *> m_wrapperVehicles;
+
+	PHY_ResponseCallback m_triggerCallbacks[PHY_NUM_RESPONSE];
+	void *m_triggerCallbacksUserPtrs[PHY_NUM_RESPONSE];
 
 	/// solver iterations
 	int m_numIterations;
@@ -87,7 +136,7 @@ protected:
 	int m_numTimeSubSteps;
 
 	int m_ccdMode;
-	int m_solverType;
+	PHY_SolverType m_solverType;
 
 	float m_deactivationTime;
 	float m_linearDeactivationThreshold;
@@ -95,9 +144,10 @@ protected:
 	float m_contactBreakingThreshold;
 
 	void ProcessFhSprings(double curTime, float timeStep);
+	virtual void ExportFile(const std::string& filename);
 
 public:
-	CcdPhysicsEnvironment(bool useDbvtCulling, btDispatcher *dispatcher = nullptr, btOverlappingPairCache *pairCache = nullptr);
+	CcdPhysicsEnvironment(PHY_SolverType solverType, bool useDbvtCulling);
 
 	virtual ~CcdPhysicsEnvironment();
 
@@ -106,8 +156,6 @@ public:
 	/////////////////////////////////////
 
 	/// Perform an integration step of duration 'timeStep'.
-
-	virtual void SetDebugDrawer(btIDebugDraw *debugDrawer);
 
 	virtual void SetNumIterations(int numIter);
 	virtual void SetNumTimeSubSteps(int numTimeSubSteps)
@@ -119,7 +167,7 @@ public:
 	virtual void SetDeactivationAngularTreshold(float angTresh);
 	virtual void SetContactBreakingTreshold(float contactBreakingTreshold);
 	virtual void SetCcdMode(int ccdMode);
-	virtual void SetSolverType(int solverType);
+	virtual void SetSolverType(PHY_SolverType solverType);
 	virtual void SetSolverSorConstant(float sor);
 	virtual void SetSolverTau(float tau);
 	virtual void SetSolverDamping(float damping);
@@ -129,11 +177,6 @@ public:
 	virtual int GetNumTimeSubSteps()
 	{
 		return m_numTimeSubSteps;
-	}
-
-	virtual void BeginFrame();
-	virtual void EndFrame()
-	{
 	}
 	/// Perform an integration step of duration 'timeStep'.
 	virtual bool ProceedDeltaTime(double curTime, float timeStep, float interval);
@@ -147,7 +190,6 @@ public:
 	void SimulationSubtickCallback(btScalar timeStep);
 
 	virtual void DebugDrawWorld();
-//		virtual bool		proceedDeltaTimeOneStep(float timeStep);
 
 	virtual void SetFixedTimeStep(bool useFixedTimeStep, float fixedTimeStep)
 	{
@@ -163,7 +205,7 @@ public:
 	virtual int GetDebugMode() const;
 
 	virtual void SetGravity(float x, float y, float z);
-	virtual void GetGravity(MT_Vector3& grav);
+	virtual mt::vec3 GetGravity() const;
 
 
 	virtual PHY_IConstraint *CreateConstraint(class PHY_IPhysicsController *ctrl, class PHY_IPhysicsController *ctrl2, PHY_ConstraintType type,
@@ -187,8 +229,8 @@ public:
 	btTypedConstraint *GetConstraintById(int constraintId);
 
 	virtual PHY_IPhysicsController *RayTest(PHY_IRayCastFilterCallback &filterCallback, float fromX, float fromY, float fromZ, float toX, float toY, float toZ);
-	virtual bool CullingTest(PHY_CullingCallback callback, void *userData, const std::array<MT_Vector4, 6>& planes,
-							 int occlusionRes, const int *viewport, const MT_Matrix4x4& matrix);
+	virtual bool CullingTest(PHY_CullingCallback callback, void *userData, const std::array<mt::vec4, 6>& planes,
+							 int occlusionRes, const int *viewport, const mt::mat4& matrix);
 
 
 	//Methods for gamelogic collision/physics callbacks
@@ -197,8 +239,9 @@ public:
 	virtual void AddCollisionCallback(int response_class, PHY_ResponseCallback callback, void *user);
 	virtual bool RequestCollisionCallback(PHY_IPhysicsController *ctrl);
 	virtual bool RemoveCollisionCallback(PHY_IPhysicsController *ctrl);
+	virtual PHY_CollisionTestResult CheckCollision(PHY_IPhysicsController *ctrl0, PHY_IPhysicsController *ctrl1);
 	//These two methods are used *solely* to create controllers for Near/Radar sensor! Don't use for anything else
-	virtual PHY_IPhysicsController *CreateSphereController(float radius, const MT_Vector3& position);
+	virtual PHY_IPhysicsController *CreateSphereController(float radius, const mt::vec3& position);
 	virtual PHY_IPhysicsController *CreateConeController(float coneradius, float coneheight);
 
 	virtual int GetNumContactPoints();
@@ -234,7 +277,7 @@ public:
 	btBroadphaseInterface *GetBroadphase();
 	btDbvtBroadphase *GetCullingTree()
 	{
-		return m_cullingTree;
+		return m_cullingTree.get();
 	}
 
 	btDispatcher *GetDispatcher();
@@ -243,23 +286,21 @@ public:
 
 	void SyncMotionStates(float timeStep);
 
-	class btSoftRigidDynamicsWorld *GetDynamicsWorld()
+	btSoftRigidDynamicsWorldMt *GetDynamicsWorld()
 	{
-		return m_dynamicsWorld;
+		return m_dynamicsWorld.get();
 	}
 
-	class btConstraintSolver *GetConstraintSolver();
+	btConstraintSolver *GetConstraintSolver();
 
 	void MergeEnvironment(PHY_IPhysicsEnvironment *other_env);
 
 	static CcdPhysicsEnvironment *Create(struct Scene *blenderscene, bool visualizePhysics);
 
-	virtual void ConvertObject(KX_BlenderSceneConverter& converter,
+	virtual void ConvertObject(BL_SceneConverter& converter,
 							   KX_GameObject *gameobj,
-	                           RAS_MeshObject *meshobj,
-	                           DerivedMesh *dm,
+	                           RAS_Mesh *meshobj,
 	                           KX_Scene *kxscene,
-	                           PHY_ShapeProps *shapeprops,
 	                           PHY_IMotionState *motionstate,
 	                           int activeLayerBitInfo,
 	                           bool isCompoundChild,
@@ -268,38 +309,9 @@ public:
 	/* Set the rigid body joints constraints values for converted objects and replicated group instances. */
 	virtual void SetupObjectConstraints(KX_GameObject *obj_src, KX_GameObject *obj_dest,
 	                                    bRigidBodyJointConstraint *dat);
-
-protected:
-	std::set<CcdPhysicsController *> m_controllers;
-
-	PHY_ResponseCallback m_triggerCallbacks[PHY_NUM_RESPONSE];
-	void *m_triggerCallbacksUserPtrs[PHY_NUM_RESPONSE];
-
-	std::vector<WrapperVehicle *>    m_wrapperVehicles;
-
-	/** use explicit btSoftRigidDynamicsWorld/btDiscreteDynamicsWorld* so that we have access to
-	 * btDiscreteDynamicsWorld::addRigidBody(body,filter,group)
-	 * so that we can set the body collision filter/group at the time of creation
-	 * and not afterwards (breaks the collision system for radar/near sensor)
-	 * Ideally we would like to have access to this function from the btDynamicsWorld interface
-	 */
-	// class btDynamicsWorld *m_dynamicsWorld;
-	class btSoftRigidDynamicsWorld *m_dynamicsWorld;
-
-	class btConstraintSolver *m_solver;
-
-	class btOverlappingPairCache *m_ownPairCache;
-
-	class CcdOverlapFilterCallBack *m_filterCallback;
-
-	class btGhostPairCallback *m_ghostPairCallback;
-
-	class btDispatcher *m_ownDispatcher;
-
-	virtual void ExportFile(const std::string& filename);
 };
 
-class CcdCollData : public PHY_CollData
+class CcdCollData : public PHY_ICollData
 {
 	const btPersistentManifold *m_manifoldPoint;
 public:
@@ -307,10 +319,10 @@ public:
 	virtual ~CcdCollData();
 
 	virtual unsigned int GetNumContacts() const;
-	virtual MT_Vector3 GetLocalPointA(unsigned int index, bool first) const;
-	virtual MT_Vector3 GetLocalPointB(unsigned int index, bool first) const;
-	virtual MT_Vector3 GetWorldPoint(unsigned int index, bool first) const;
-	virtual MT_Vector3 GetNormal(unsigned int index, bool first) const;
+	virtual mt::vec3 GetLocalPointA(unsigned int index, bool first) const;
+	virtual mt::vec3 GetLocalPointB(unsigned int index, bool first) const;
+	virtual mt::vec3 GetWorldPoint(unsigned int index, bool first) const;
+	virtual mt::vec3 GetNormal(unsigned int index, bool first) const;
 	virtual float GetCombinedFriction(unsigned int index, bool first) const;
 	virtual float GetCombinedRollingFriction(unsigned int index, bool first) const;
 	virtual float GetCombinedRestitution(unsigned int index, bool first) const;

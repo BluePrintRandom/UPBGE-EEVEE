@@ -1,31 +1,31 @@
 /*
-* ***** BEGIN GPL LICENSE BLOCK *****
-*
-* This program is free software; you can redistribute it and/or
-* modify it under the terms of the GNU General Public License
-* as published by the Free Software Foundation; either version 2
-* of the License, or (at your option) any later version.
-*
-* This program is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-* GNU General Public License for more details.
-*
-* You should have received a copy of the GNU General Public License
-* along with this program; if not, write to the Free Software Foundation,
-* Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
-*
-* Contributor(s): Pierluigi Grassi, Porteries Tristan.
-*
-* ***** END GPL LICENSE BLOCK *****
-*/
+ * ***** BEGIN GPL LICENSE BLOCK *****
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License
+ * as published by the Free Software Foundation; either version 2
+ * of the License, or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
+ *
+ * Contributor(s): Pierluigi Grassi, Porteries Tristan.
+ *
+ * ***** END GPL LICENSE BLOCK *****
+ */
 
 #include "RAS_2DFilter.h"
 #include "RAS_2DFilterManager.h"
-#include "RAS_2DFilterFrameBuffer.h"
-#include "RAS_FrameBuffer.h"
+#include "RAS_2DFilterOffScreen.h"
 #include "RAS_Rasterizer.h"
 #include "RAS_ICanvas.h"
+#include "RAS_OffScreen.h"
 #include "RAS_Rect.h"
 
 #include "EXP_Value.h"
@@ -33,13 +33,7 @@
 #include "GPU_glew.h"
 
 extern "C" {
-#  include "DRW_render.h"
-#  include "../gpu/GPU_framebuffer.h"
-#  include "../gpu/GPU_texture.h"
-}
-
-extern "C" {
-	extern char datatoc_RAS_VertexShader2DFilter_glsl[];
+extern char datatoc_RAS_VertexShader2DFilter_glsl[];
 }
 
 static std::string predefinedUniformsName[RAS_2DFilter::MAX_PREDEFINED_UNIFORM_TYPE] = {
@@ -56,7 +50,7 @@ RAS_2DFilter::RAS_2DFilter(RAS_2DFilterData& data)
 	m_uniformInitialized(false),
 	m_mipmap(data.mipmap)
 {
-	for(unsigned int i = 0; i < TEXTURE_OFFSETS_SIZE; i++) {
+	for (unsigned int i = 0; i < TEXTURE_OFFSETS_SIZE; i++) {
 		m_textureOffsets[i] = 0;
 	}
 
@@ -64,14 +58,12 @@ RAS_2DFilter::RAS_2DFilter(RAS_2DFilterData& data)
 		m_predefinedUniforms[i] = -1;
 	}
 
-	for (unsigned short i = 0; i < 8; ++i) {
-		m_textures[i] = 0;
+	if (!data.shaderText.empty()) {
+		m_progs[VERTEX_PROGRAM] = std::string(datatoc_RAS_VertexShader2DFilter_glsl);
+		m_progs[FRAGMENT_PROGRAM] = data.shaderText;
+
+		LinkProgram();
 	}
-
-	m_progs[VERTEX_PROGRAM] = std::string(datatoc_RAS_VertexShader2DFilter_glsl);
-	m_progs[FRAGMENT_PROGRAM] = data.shaderText;
-
-	LinkProgram();
 }
 
 RAS_2DFilter::~RAS_2DFilter()
@@ -88,14 +80,14 @@ void RAS_2DFilter::SetMipmap(bool mipmap)
 	m_mipmap = mipmap;
 }
 
-RAS_2DFilterFrameBuffer *RAS_2DFilter::GetFrameBuffer() const
+RAS_2DFilterOffScreen *RAS_2DFilter::GetOffScreen() const
 {
-	return m_frameBuffer.get();
+	return m_offScreen.get();
 }
 
-void RAS_2DFilter::SetOffScreen(RAS_2DFilterFrameBuffer *frameBuffer)
+void RAS_2DFilter::SetOffScreen(RAS_2DFilterOffScreen *offScreen)
 {
-	m_frameBuffer.reset(frameBuffer);
+	m_offScreen.reset(offScreen);
 }
 
 void RAS_2DFilter::Initialize(RAS_ICanvas *canvas)
@@ -109,68 +101,61 @@ void RAS_2DFilter::Initialize(RAS_ICanvas *canvas)
 	}
 }
 
-RAS_FrameBuffer *RAS_2DFilter::Start(RAS_Rasterizer *rasty, RAS_ICanvas *canvas, RAS_FrameBuffer *depthfb,
-						 RAS_FrameBuffer *colorfb, RAS_FrameBuffer *targetfb)
+RAS_OffScreen *RAS_2DFilter::Render(RAS_Rasterizer *rasty, RAS_ICanvas *canvas, RAS_OffScreen *depthofs,
+                                    RAS_OffScreen *colorofs, RAS_OffScreen *targetofs)
 {
 	/* The off screen the filter rendered to. If the filter is invalid or uses a custom
 	 * off screen the output off screen is the same as the input off screen. */
-	RAS_FrameBuffer *outpufb = colorfb;
+	RAS_OffScreen *outputofs = colorofs;
 	if (!Ok()) {
-		return outpufb;
+		return outputofs;
 	}
 
 	/* The target off screen must be not the color input off screen, it can be the same as depth input
 	 * screen because depth is unchanged. */
-	BLI_assert(targetfb != colorfb);
+	BLI_assert(targetofs != colorofs);
 
-	if (m_frameBuffer) {
-		if (!m_frameBuffer->Update(canvas)) {
-			return outpufb;
+	if (m_offScreen) {
+		if (!m_offScreen->Update(canvas)) {
+			return outputofs;
 		}
 
-		m_frameBuffer->Bind(rasty);
+		m_offScreen->Bind(rasty);
 	}
 	else {
-		//DRW_framebuffer_bind(targetfb->GetFrameBuffer());
-		outpufb = targetfb;
+		targetofs->Bind();
+		outputofs = targetofs;
 	}
 
 	Initialize(canvas);
 
-	SetProg(true);
+	BindProg();
 
-	BindTextures(depthfb, colorfb);
+	BindTextures(depthofs, colorofs);
 	BindUniforms(canvas);
 
-	Update(rasty, MT_Matrix4x4::Identity());
+	Update(rasty, mt::mat4::Identity());
 
 	ApplyShader();
 
 	rasty->DrawOverlayPlane();
 
-	UnbindTextures(depthfb, colorfb);
+	UnbindTextures(depthofs, colorofs);
 
-	if (m_frameBuffer) {
-		m_frameBuffer->Unbind(rasty, canvas);
+	if (m_offScreen) {
+		m_offScreen->Unbind(rasty, canvas);
 	}
 
-	return outpufb;
-}
+	UnbindProg();
 
-void RAS_2DFilter::End()
-{
-	if(Ok()) {
-		SetProg(false);
-	}
+	return outputofs;
 }
 
 bool RAS_2DFilter::LinkProgram()
 {
-	if (!RAS_Shader::LinkProgram(false)) {
+	if (!RAS_Shader::LinkProgram()) {
 		return false;
 	}
-
-	BindAttributes({{0, "bgl_InPosition"}, {1, "bgl_InTexCoord"}});
 
 	m_uniformInitialized = false;
 
@@ -186,9 +171,8 @@ void RAS_2DFilter::ParseShaderProgram()
 
 	if (m_gameObject) {
 		std::vector<std::string> foundProperties;
-		for (std::vector<std::string>::iterator it = m_properties.begin(), end = m_properties.end(); it != end; ++it) {
-			std::string prop = *it;
-			unsigned int loc = GetUniformLocation(prop, false);
+		for (const std::string& prop : m_properties) {
+			const unsigned int loc = GetUniformLocation(prop, false);
 			if (loc != -1) {
 				m_propertiesLoc.push_back(loc);
 				foundProperties.push_back(prop);
@@ -199,11 +183,11 @@ void RAS_2DFilter::ParseShaderProgram()
 }
 
 /* Fill the textureOffsets array with values used by the shaders to get texture samples
-of nearby fragments. Or vertices or whatever.*/
+   of nearby fragments. Or vertices or whatever.*/
 void RAS_2DFilter::ComputeTextureOffsets(RAS_ICanvas *canvas)
 {
-	const GLfloat texturewidth = (GLfloat)canvas->GetWidth() + 1;
-	const GLfloat textureheight = (GLfloat)canvas->GetHeight() + 1;
+	const GLfloat texturewidth = (GLfloat)canvas->GetWidth();
+	const GLfloat textureheight = (GLfloat)canvas->GetHeight();
 	const GLfloat xInc = 1.0f / texturewidth;
 	const GLfloat yInc = 1.0f / textureheight;
 
@@ -215,48 +199,44 @@ void RAS_2DFilter::ComputeTextureOffsets(RAS_ICanvas *canvas)
 	}
 }
 
-void RAS_2DFilter::BindTextures(RAS_FrameBuffer *depthfb, RAS_FrameBuffer *colorfb)
+void RAS_2DFilter::BindTextures(RAS_OffScreen *depthofs, RAS_OffScreen *colorofs)
 {
 	if (m_predefinedUniforms[RENDERED_TEXTURE_UNIFORM] != -1) {
-		GPU_texture_bind(GPU_framebuffer_color_texture(colorfb->GetFrameBuffer()), 8);
+		colorofs->BindColorTexture(8);
 		if (m_mipmap) {
-			GPU_framebuffer_mipmap_texture(colorfb->GetFrameBuffer());
+			colorofs->MipmapTexture();
 		}
 	}
 	if (m_predefinedUniforms[DEPTH_TEXTURE_UNIFORM] != -1) {
-		GPU_texture_bind(GPU_framebuffer_depth_texture(depthfb->GetFrameBuffer()), 9);
+		depthofs->BindDepthTexture(9);
 	}
 
 	// Bind custom textures.
-	for (unsigned short i = 0; i < 8; ++i) {
-		if (m_textures[i]) {
-			glActiveTexture(GL_TEXTURE0 + i);
-			glBindTexture(GL_TEXTURE_2D, m_textures[i]);
-		}
+	for (const auto& pair : m_textures) {
+		glActiveTexture(GL_TEXTURE0 + pair.first);
+		glBindTexture(pair.second.first, pair.second.second);
 	}
 }
 
-void RAS_2DFilter::UnbindTextures(RAS_FrameBuffer *depthfb, RAS_FrameBuffer *colorfb)
+void RAS_2DFilter::UnbindTextures(RAS_OffScreen *depthofs, RAS_OffScreen *colorofs)
 {
 	if (m_predefinedUniforms[RENDERED_TEXTURE_UNIFORM] != -1) {
-		GPU_texture_unbind(GPU_framebuffer_color_texture(colorfb->GetFrameBuffer()));
+		colorofs->UnbindColorTexture();
 		if (m_mipmap) {
-			GPU_framebuffer_unmipmap_texture(colorfb->GetFrameBuffer());
+			colorofs->UnmipmapTexture();
 		}
 	}
 	if (m_predefinedUniforms[DEPTH_TEXTURE_UNIFORM] != -1) {
-		GPU_texture_unbind(GPU_framebuffer_color_texture(depthfb->GetFrameBuffer()));
+		depthofs->UnbindDepthTexture();
 	}
 
-	// Bind custom textures.
-	for (unsigned short i = 0; i < 8; ++i) {
-		if (m_textures[i]) {
-			glActiveTexture(GL_TEXTURE0 + i);
-			glBindTexture(GL_TEXTURE_2D, 0);
-		}
+	// Unbind custom textures.
+	for (const auto& pair : m_textures) {
+		glActiveTexture(GL_TEXTURE0 + pair.first);
+		glBindTexture(pair.second.first, 0);
 	}
 
-	glActiveTexture(GL_TEXTURE0);
+	glActiveTextureARB(GL_TEXTURE0);
 }
 
 void RAS_2DFilter::BindUniforms(RAS_ICanvas *canvas)
@@ -269,25 +249,25 @@ void RAS_2DFilter::BindUniforms(RAS_ICanvas *canvas)
 	}
 	if (m_predefinedUniforms[RENDERED_TEXTURE_WIDTH_UNIFORM] != -1) {
 		// Bind rendered texture width.
-		const unsigned int texturewidth = canvas->GetWidth() + 1;
+		const unsigned int texturewidth = canvas->GetWidth();
 		SetUniform(m_predefinedUniforms[RENDERED_TEXTURE_WIDTH_UNIFORM], (float)texturewidth);
 	}
 	if (m_predefinedUniforms[RENDERED_TEXTURE_HEIGHT_UNIFORM] != -1) {
 		// Bind rendered texture height.
-		const unsigned int textureheight = canvas->GetHeight() + 1;
+		const unsigned int textureheight = canvas->GetHeight();
 		SetUniform(m_predefinedUniforms[RENDERED_TEXTURE_HEIGHT_UNIFORM], (float)textureheight);
 	}
 	if (m_predefinedUniforms[TEXTURE_COORDINATE_OFFSETS_UNIFORM] != -1) {
 		// Bind texture offsets.
 		SetUniformfv(m_predefinedUniforms[TEXTURE_COORDINATE_OFFSETS_UNIFORM], RAS_Uniform::UNI_FLOAT2, m_textureOffsets,
-					 sizeof(float) * TEXTURE_OFFSETS_SIZE, TEXTURE_OFFSETS_SIZE / 2);
+		             sizeof(float) * TEXTURE_OFFSETS_SIZE, TEXTURE_OFFSETS_SIZE / 2);
 	}
 
 	for (unsigned int i = 0, size = m_properties.size(); i < size; ++i) {
 		const std::string& prop = m_properties[i];
 		unsigned int uniformLoc = m_propertiesLoc[i];
 
-		CValue *property = m_gameObject->GetProperty(prop);
+		EXP_Value *property = m_gameObject->GetProperty(prop);
 
 		if (!property) {
 			continue;
@@ -295,13 +275,19 @@ void RAS_2DFilter::BindUniforms(RAS_ICanvas *canvas)
 
 		switch (property->GetValueType()) {
 			case VALUE_INT_TYPE:
+			{
 				SetUniform(uniformLoc, (int)property->GetNumber());
 				break;
+			}
 			case VALUE_FLOAT_TYPE:
+			{
 				SetUniform(uniformLoc, (float)property->GetNumber());
 				break;
+			}
 			default:
+			{
 				break;
+			}
 		}
 	}
 }

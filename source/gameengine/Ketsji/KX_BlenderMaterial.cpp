@@ -26,13 +26,14 @@
 #include "KX_Scene.h"
 #include "KX_PyMath.h"
 
-#include "KX_MaterialShader.h"
 #include "BL_Shader.h"
+#include "BL_BlenderShader.h"
 
 #include "EXP_ListWrapper.h"
 
 #include "RAS_BucketManager.h"
 #include "RAS_Rasterizer.h"
+#include "RAS_MeshUser.h"
 
 #include "GPU_draw.h"
 #include "GPU_material.h" // for GPU_BLEND_SOLID
@@ -40,27 +41,13 @@
 #include "DNA_material_types.h"
 #include "DNA_scene_types.h"
 
-extern "C" {
-#  include "eevee_private.h"
-#  include "DRW_render.h"
-#  include "../gpu/intern/gpu_codegen.h"
-}
-
-KX_BlenderMaterial::KX_BlenderMaterial(
-		RAS_Rasterizer *rasty,
-		KX_Scene *scene,
-		Material *mat,
-		const std::string& name,
-		GameSettings *game,
-		int lightlayer)
-	:RAS_IPolyMaterial(name, game),
+KX_BlenderMaterial::KX_BlenderMaterial(Material *mat, const std::string& name, KX_Scene *scene)
+	:RAS_IMaterial(name),
 	m_material(mat),
 	m_shader(nullptr),
-	m_rasterizer(rasty),
+	m_blenderShader(nullptr),
 	m_scene(scene),
-	m_userDefBlend(false),
-	m_constructed(false),
-	m_lightLayer(lightlayer)
+	m_userDefBlend(false)
 {
 	// Save material data to restore on exit
 	m_savedData.r = m_material->r;
@@ -71,25 +58,65 @@ KX_BlenderMaterial::KX_BlenderMaterial(
 	m_savedData.specg = m_material->specg;
 	m_savedData.specb = m_material->specb;
 	m_savedData.spec = m_material->spec;
+	/*m_savedData.ref = m_material->ref;
+	m_savedData.hardness = m_material->har;
+	m_savedData.emit = m_material->emit;
+	m_savedData.ambient = m_material->amb;
+	m_savedData.specularalpha = m_material->spectra;*/
 
-	m_alphablend = mat->blend_method;
+	m_alphablend = mat->game.alpha_blend;
 
-	if (m_material->use_nodes && m_material->nodetree) {
-		/*EEVEE_Data *vedata = EEVEE_engine_data_get();
-		EEVEE_ViewLayerData *sldata = EEVEE_view_layer_data_get();
-		EEVEE_LampsInfo *linfo = sldata->lamps;
-		EEVEE_StorageList *stl = EEVEE_engine_data_get()->stl;
-		const bool use_refract = ((m_material->blend_flag & MA_BL_SS_REFRACTION) != 0) && ((stl->effects->enabled_effects & EFFECT_REFRACT) != 0);
-		const bool use_sss = ((m_material->blend_flag & MA_BL_SS_SUBSURFACE) != 0) && ((stl->effects->enabled_effects & EFFECT_SSS) != 0);
-		const bool use_blend = (m_material->blend_method & MA_BM_BLEND) != 0;
-		const bool use_translucency = ((m_material->blend_flag & MA_BL_TRANSLUCENCY) != 0) && ((stl->effects->enabled_effects & EFFECT_SSS) != 0);
-		m_gpuMat = EEVEE_material_mesh_get(scene->GetBlenderScene(), m_material, vedata,
-			use_blend, (m_material->blend_method == MA_BM_MULTIPLY), use_refract, use_sss, use_translucency, linfo->shadow_method);*/
-		m_gpuMat = nullptr;
+	//// with ztransp enabled, enforce alpha blending mode
+	//if ((mat->mode & MA_TRANSP) && (mat->mode & MA_ZTRANSP) && (m_alphablend == GEMAT_SOLID)) {
+	//	m_alphablend = GEMAT_ALPHA;
+	//}
+
+	//m_zoffset = mat->zoffs;
+
+	//m_rasMode |= (mat->game.flag & GEMAT_INVISIBLE) ? 0 : RAS_VISIBLE;
+	//m_rasMode |= (mat->game.flag & GEMAT_NOPHYSICS) ? 0 : RAS_COLLIDER;
+	//m_rasMode |= (mat->game.flag & GEMAT_BACKCULL) ? 0 : RAS_TWOSIDED;
+	//m_rasMode |= (mat->material_type == MA_TYPE_WIRE) ? RAS_WIRE : 0;
+	//m_rasMode |= (mat->mode2 & MA_DEPTH_TRANSP) ? RAS_DEPTH_ALPHA : 0;
+
+	if (ELEM(m_alphablend, GEMAT_CLIP, GEMAT_ALPHA_TO_COVERAGE)) {
+		m_rasMode |= RAS_ALPHA_SHADOW;
 	}
-	else {
-		m_gpuMat = nullptr;
+	// always zsort alpha + add
+	else if (ELEM(m_alphablend, GEMAT_ALPHA, GEMAT_ALPHA_SORT, GEMAT_ADD)) {
+		m_rasMode |= RAS_ALPHA;
+		m_rasMode |= (mat && (mat->game.alpha_blend & GEMAT_ALPHA_SORT)) ? RAS_ZSORT : 0;
 	}
+
+	switch (mat->game.face_orientation) {
+		case GEMAT_NORMAL:
+		{
+			m_drawingMode = RAS_NORMAL;
+			break;
+		}
+		case GEMAT_BILLBOARD:
+		{
+			m_drawingMode = RAS_BILLBOARD;
+			break;
+		}
+		case GEMAT_HALO:
+		{
+			m_drawingMode = RAS_HALO;
+			break;
+		}
+		case GEMAT_SHADOW:
+		{
+			m_drawingMode = RAS_SHADOW;
+			break;
+		}
+	}
+
+	/*m_flag |= ((mat->mode & MA_SHLESS) != 0) ? 0 : RAS_MULTILIGHT;
+	m_flag |= ((mat->mode2 & MA_CASTSHADOW) != 0) ? RAS_CASTSHADOW : 0;
+	m_flag |= ((mat->mode & MA_ONLYCAST) != 0) ? RAS_ONLYSHADOW : 0;*/
+
+	m_blendFunc[0] = RAS_Rasterizer::RAS_ZERO;
+	m_blendFunc[1] = RAS_Rasterizer::RAS_ZERO;
 }
 
 KX_BlenderMaterial::~KX_BlenderMaterial()
@@ -103,24 +130,30 @@ KX_BlenderMaterial::~KX_BlenderMaterial()
 	m_material->specg = m_savedData.specg;
 	m_material->specb = m_savedData.specb;
 	m_material->spec = m_savedData.spec;
+	/*m_material->ref = m_savedData.ref;
+	m_material->har = m_savedData.hardness;
+	m_material->emit = m_savedData.emit;
+	m_material->amb = m_savedData.ambient;
+	m_material->spectra = m_savedData.specularalpha;*/
 
-	// cleanup work
-	if (m_constructed) {
-		// clean only if material was actually used
-		OnExit();
+	if (m_shader) {
+		delete m_shader;
+		m_shader = nullptr;
 	}
+	if (m_blenderShader) {
+		delete m_blenderShader;
+		m_blenderShader = nullptr;
+	}
+
+	/* used to call with 'm_material->tface' but this can be a freed array,
+	 * see: [#30493], so just call with nullptr, this is best since it clears
+	 * the 'lastface' pointer in GPU too - campbell */
+	//GPU_set_tpage(nullptr, 1, m_alphablend);
 }
 
-RAS_MaterialShader *KX_BlenderMaterial::GetShader() const
+const RAS_Rasterizer::BlendFunc *KX_BlenderMaterial::GetBlendFunc() const
 {
-	if (m_shader && m_shader->IsValid(m_rasterizer->GetDrawingMode())) {
-		return m_shader.get();
-	}
-
-	// Should never happen.
-	BLI_assert(false);
-
-	return nullptr;
+	return m_blendFunc;
 }
 
 void KX_BlenderMaterial::GetRGBAColor(unsigned char *rgba) const
@@ -131,8 +164,9 @@ void KX_BlenderMaterial::GetRGBAColor(unsigned char *rgba) const
 		*rgba++ = (unsigned char)(m_material->b * 255.0f);
 		*rgba++ = (unsigned char)(m_material->alpha * 255.0f);
 	}
-	else
-		RAS_IPolyMaterial::GetRGBAColor(rgba);
+	else {
+		RAS_IMaterial::GetRGBAColor(rgba);
+	}
 }
 
 const std::string KX_BlenderMaterial::GetTextureName() const
@@ -155,51 +189,41 @@ SCA_IScene *KX_BlenderMaterial::GetScene() const
 	return m_scene;
 }
 
-void KX_BlenderMaterial::ReleaseMaterial()
+void KX_BlenderMaterial::ReloadMaterial()
 {
-}
+	BLI_assert(m_scene);
 
-void KX_BlenderMaterial::InitTextures()
-{
-	if (!m_gpuMat) {
-		return;
+	if (m_blenderShader) {
+		// If shader exists reload it.
+		m_blenderShader->ReloadMaterial();
 	}
-	GPUPass *gpupass = GPU_material_get_pass(m_gpuMat);
+	else {
+		// Create shader.
+		m_blenderShader = new BL_BlenderShader(m_scene, m_material, this);
 
-	if (!gpupass) {
-		/* Shader compilation error */
-		return;
-	}
-
-	GPUShader *shader = GPU_pass_shader_get(gpupass);
-
-	/* Converting dynamic GPUInput to DRWUniform */
-	ListBase *inputs = GPU_material_get_inputs(m_gpuMat);
-
-	int i = 0;
-	for (GPUInput *input = (GPUInput *)inputs->first; input; input = input->next) {
-		/* Textures */
-		if (input->ima) {
-			BL_Texture *texture = new BL_Texture(input);
-			m_textures[i] = texture;
-			i++;
+		if (!m_blenderShader->Ok()) {
+			delete m_blenderShader;
+			m_blenderShader = nullptr;
 		}
 	}
 }
 
-void KX_BlenderMaterial::OnConstruction()
+void KX_BlenderMaterial::ReplaceScene(KX_Scene *scene)
 {
-	if (m_constructed) {
-		// when material are reused between objects
-		return;
-	}
+	m_scene = scene;
+}
 
-	InitTextures();
-	//m_scene->GetBucketManager()->UpdateShaders(this);
-
-	m_blendFunc[0] = 0;
-	m_blendFunc[1] = 0;
-	m_constructed = true;
+void KX_BlenderMaterial::InitTextures()
+{
+	//// for each unique material...
+	//int i;
+	//for (i = 0; i < RAS_Texture::MaxUnits; i++) {
+	//	MTex *mtex = m_material->mtex[i];
+	//	if (mtex && mtex->tex) {
+	//		BL_Texture *texture = new BL_Texture(mtex);
+	//		m_textures[i] = texture;
+	//	}
+	//}
 }
 
 void KX_BlenderMaterial::EndFrame(RAS_Rasterizer *rasty)
@@ -208,41 +232,37 @@ void KX_BlenderMaterial::EndFrame(RAS_Rasterizer *rasty)
 	RAS_Texture::DesactiveTextures();
 }
 
-void KX_BlenderMaterial::OnExit()
+void KX_BlenderMaterial::UpdateTextures()
 {
-	if (m_shader) {
-		m_shader.reset(nullptr);
+	/** We make sure that all gpu textures are the same in material textures here
+	 * than in gpu material. This is dones in a separated loop because the texture
+	 * regeneration can overide opengl bind settings of the previous texture.
+	 */
+	for (unsigned short i = 0; i < RAS_Texture::MaxUnits; i++) {
+		RAS_Texture *tex = m_textures[i];
+		if (tex && tex->Ok()) {
+			tex->CheckValidTexture();
+		}
 	}
 }
 
-
-void KX_BlenderMaterial::SetShaderData(RAS_Rasterizer *ras)
+void KX_BlenderMaterial::ApplyTextures()
 {
-#if 0
-	BLI_assert(m_shader);
-
-	int i;
-
-	m_shader->SetProg(true);
-
-	m_shader->ApplyShader();
-
-	/** We make sure that all gpu textures are the same in material textures here
-	 * than in gpu material. This is dones in a separated loop because the texture
-	 * regeneration can overide bind settings of the previous texture.
-	 */
-	for (i = 0; i < RAS_Texture::MaxUnits; i++) {
-		if (m_textures[i] && m_textures[i]->Ok()) {
-			m_textures[i]->CheckValidTexture();
-		}
-	}
-
 	// for each enabled unit
-	for (i = 0; i < RAS_Texture::MaxUnits; i++) {
+	for (unsigned short i = 0; i < RAS_Texture::MaxUnits; i++) {
 		if (m_textures[i] && m_textures[i]->Ok()) {
 			m_textures[i]->ActivateTexture(i);
 		}
 	}
+}
+
+void KX_BlenderMaterial::SetShaderData(RAS_Rasterizer *ras)
+{
+	m_shader->BindProg();
+
+	m_shader->ApplyShader();
+
+	ApplyTextures();
 
 	if (!m_userDefBlend) {
 		ras->SetAlphaBlend(m_alphablend);
@@ -253,28 +273,115 @@ void KX_BlenderMaterial::SetShaderData(RAS_Rasterizer *ras)
 
 		// tested to be valid enums
 		ras->Enable(RAS_Rasterizer::RAS_BLEND);
-		ras->SetBlendFunc((RAS_Rasterizer::BlendFunc)m_blendFunc[0], (RAS_Rasterizer::BlendFunc)m_blendFunc[1]);
+		ras->SetBlendFunc(m_blendFunc[0], m_blendFunc[1]);
 	}
+}
 
-	// Disable :
-	for (unsigned short i = 0; i < RAS_Texture::MaxUnits; i++) {
-		if (m_textures[i] && m_textures[i]->Ok()) {
-			m_textures[i]->DisableTexture();
+void KX_BlenderMaterial::SetBlenderShaderData(RAS_Rasterizer *ras)
+{
+	// Don't set the alpha blend here because ActivateMeshSlot do it.
+	m_blenderShader->BindProg(ras);
+}
+
+void KX_BlenderMaterial::ActivateShaders(RAS_Rasterizer *rasty)
+{
+	SetShaderData(rasty);
+	ActivateGLMaterials(rasty);
+}
+
+void KX_BlenderMaterial::ActivateBlenderShaders(RAS_Rasterizer *rasty)
+{
+	SetBlenderShaderData(rasty);
+}
+
+void KX_BlenderMaterial::Prepare(RAS_Rasterizer *rasty)
+{
+	UpdateTextures();
+	if (m_blenderShader && m_blenderShader->Ok()) {
+		m_blenderShader->UpdateLights(rasty);
+	}
+}
+
+void KX_BlenderMaterial::Activate(RAS_Rasterizer *rasty)
+{
+	if (m_shader && m_shader->Ok()) {
+		ActivateShaders(rasty);
+	}
+	else if (m_blenderShader && m_blenderShader->Ok()) {
+		ActivateBlenderShaders(rasty);
+	}
+}
+
+void KX_BlenderMaterial::Desactivate(RAS_Rasterizer *rasty)
+{
+	if (m_shader && m_shader->Ok()) {
+		m_shader->UnbindProg();
+		for (unsigned short i = 0; i < RAS_Texture::MaxUnits; i++) {
+			if (m_textures[i] && m_textures[i]->Ok()) {
+				m_textures[i]->DisableTexture();
+			}
 		}
 	}
-#endif
+	else if (m_blenderShader && m_blenderShader->Ok()) {
+		m_blenderShader->UnbindProg();
+	}
+}
+
+bool KX_BlenderMaterial::UseInstancing() const
+{
+	if (m_shader && m_shader->Ok()) {
+		return false;
+	}
+	else if (m_blenderShader) {
+		return m_blenderShader->UseInstancing();
+	}
+	// The material is in conversion, we use the blender material flag then.
+	return false; // m_material->shade_flag & MA_INSTANCING;
+}
+
+void KX_BlenderMaterial::ActivateInstancing(RAS_Rasterizer *rasty, RAS_InstancingBuffer *buffer)
+{
+	if (m_blenderShader) {
+		m_blenderShader->ActivateInstancing(buffer);
+	}
 }
 
 bool KX_BlenderMaterial::UsesLighting() const
 {
-	if (!RAS_IPolyMaterial::UsesLighting())
+	if (!RAS_IMaterial::UsesLighting()) {
 		return false;
+	}
 
-	if (m_shader && m_shader->IsValid(m_rasterizer->GetDrawingMode())) {
+	if (m_shader && m_shader->Ok()) {
 		return true;
+	}
+	else if (m_blenderShader && m_blenderShader->Ok()) {
+		return false;
 	}
 	else {
 		return true;
+	}
+}
+
+void KX_BlenderMaterial::ActivateMeshUser(RAS_MeshUser *meshUser, RAS_Rasterizer *rasty, const mt::mat3x4& camtrans)
+{
+	if (m_shader && m_shader->Ok()) {
+		m_shader->Update(rasty, meshUser);
+		m_shader->ApplyShader();
+		// Update OpenGL lighting builtins.
+		rasty->ProcessLighting(UsesLighting(), camtrans);
+	}
+	else if (m_blenderShader) {
+		m_blenderShader->Update(meshUser, rasty);
+
+		/* we do blend modes here, because they can change per object
+		 * with the same material due to obcolor/obalpha */
+		int alphablend = m_blenderShader->GetAlphaBlend();
+		if (ELEM(alphablend, GEMAT_SOLID, GEMAT_ALPHA, GEMAT_ALPHA_SORT) && m_alphablend != GEMAT_SOLID) {
+			alphablend = m_alphablend;
+		}
+
+		rasty->SetAlphaBlend(alphablend);
 	}
 }
 
@@ -282,26 +389,25 @@ void KX_BlenderMaterial::ActivateGLMaterials(RAS_Rasterizer *rasty) const
 {
 	/*if (m_shader || !m_blenderShader) {
 		rasty->SetSpecularity(m_material->specr * m_material->spec, m_material->specg * m_material->spec,
-							  m_material->specb * m_material->spec, m_material->spec);
+		                      m_material->specb * m_material->spec, m_material->spec);
 		rasty->SetShinyness(((float)m_material->har) / 4.0f);
 		rasty->SetDiffuse(m_material->r * m_material->ref + m_material->emit, m_material->g * m_material->ref + m_material->emit,
-						  m_material->b * m_material->ref + m_material->emit, 1.0f);
+		                  m_material->b * m_material->ref + m_material->emit, 1.0f);
 		rasty->SetEmissive(m_material->r * m_material->emit, m_material->g * m_material->emit,
-						   m_material->b * m_material->emit, 1.0f);
+		                   m_material->b * m_material->emit, 1.0f);
 		rasty->SetAmbient(m_material->amb);
 	}*/
 }
 
-void KX_BlenderMaterial::UpdateIPO(
-    MT_Vector4 rgba,
-    MT_Vector3 specrgb,
-    MT_Scalar hard,
-    MT_Scalar spec,
-    MT_Scalar ref,
-    MT_Scalar emit,
-	MT_Scalar ambient,
-    MT_Scalar alpha,
-	MT_Scalar specalpha)
+void KX_BlenderMaterial::UpdateIPO(const mt::vec4 &rgba,
+                                   const mt::vec3 &specrgb,
+                                   float hard,
+                                   float spec,
+                                   float ref,
+                                   float emit,
+                                   float ambient,
+                                   float alpha,
+                                   float specalpha)
 {
 	// only works one deep now
 
@@ -313,11 +419,33 @@ void KX_BlenderMaterial::UpdateIPO(
 	m_material->g = (float)(rgba[1]);
 	m_material->b = (float)(rgba[2]);
 	m_material->alpha = (float)(rgba[3]);
+	/*m_material->amb = (float)(ambient);
+	m_material->har = (float)(hard);
+	m_material->emit = (float)(emit);
+	m_material->spec = (float)(spec);
+	m_material->ref = (float)(ref);
+	m_material->spectra = (float)specalpha;*/
 }
 
-void KX_BlenderMaterial::ReplaceScene(KX_Scene *scene)
+const RAS_AttributeArray::AttribList KX_BlenderMaterial::GetAttribs(const RAS_Mesh::LayersInfo& layersInfo) const
 {
-	OnConstruction();
+	if (m_shader && m_shader->Ok()) {
+		return m_shader->GetAttribs(layersInfo, m_textures);
+	}
+	if (m_blenderShader && m_blenderShader->Ok()) {
+		return m_blenderShader->GetAttribs(layersInfo);
+	}
+
+	return {};
+}
+
+RAS_InstancingBuffer::Attrib KX_BlenderMaterial::GetInstancingAttribs() const
+{
+	if (m_blenderShader && m_blenderShader->Ok()) {
+		return m_blenderShader->GetInstancingAttribs();
+	}
+
+	return RAS_InstancingBuffer::DEFAULT_ATTRIBS;
 }
 
 std::string KX_BlenderMaterial::GetName()
@@ -334,18 +462,20 @@ static unsigned char mathutils_kxblendermaterial_color_cb_index = -1; /* index f
 
 static int mathutils_kxblendermaterial_generic_check(BaseMathObject *bmo)
 {
-	KX_BlenderMaterial *self = static_cast<KX_BlenderMaterial *>BGE_PROXY_REF(bmo->cb_user);
-	if (!self)
+	KX_BlenderMaterial *self = static_cast<KX_BlenderMaterial *>EXP_PROXY_REF(bmo->cb_user);
+	if (!self) {
 		return -1;
+	}
 
 	return 0;
 }
 
 static int mathutils_kxblendermaterial_color_get(BaseMathObject *bmo, int subtype)
 {
-	KX_BlenderMaterial *self = static_cast<KX_BlenderMaterial *>BGE_PROXY_REF(bmo->cb_user);
-	if (!self)
+	KX_BlenderMaterial *self = static_cast<KX_BlenderMaterial *>EXP_PROXY_REF(bmo->cb_user);
+	if (!self) {
 		return -1;
+	}
 
 	Material *mat = self->GetBlenderMaterial();
 
@@ -371,9 +501,10 @@ static int mathutils_kxblendermaterial_color_get(BaseMathObject *bmo, int subtyp
 
 static int mathutils_kxblendermaterial_color_set(BaseMathObject *bmo, int subtype)
 {
-	KX_BlenderMaterial *self = static_cast<KX_BlenderMaterial *>BGE_PROXY_REF(bmo->cb_user);
-	if (!self)
+	KX_BlenderMaterial *self = static_cast<KX_BlenderMaterial *>EXP_PROXY_REF(bmo->cb_user);
+	if (!self) {
 		return -1;
+	}
 
 	Material *mat = self->GetBlenderMaterial();
 
@@ -400,8 +531,9 @@ static int mathutils_kxblendermaterial_color_set(BaseMathObject *bmo, int subtyp
 static int mathutils_kxblendermaterial_color_get_index(BaseMathObject *bmo, int subtype, int index)
 {
 	/* lazy, avoid repeteing the case statement */
-	if (mathutils_kxblendermaterial_color_get(bmo, subtype) == -1)
+	if (mathutils_kxblendermaterial_color_get(bmo, subtype) == -1) {
 		return -1;
+	}
 	return 0;
 }
 
@@ -410,8 +542,9 @@ static int mathutils_kxblendermaterial_color_set_index(BaseMathObject *bmo, int 
 	float f = bmo->data[index];
 
 	/* lazy, avoid repeateing the case statement */
-	if (mathutils_kxblendermaterial_color_get(bmo, subtype) == -1)
+	if (mathutils_kxblendermaterial_color_get(bmo, subtype) == -1) {
 		return -1;
+	}
 
 	bmo->data[index] = f;
 	return mathutils_kxblendermaterial_color_set(bmo, subtype);
@@ -438,25 +571,33 @@ void KX_BlenderMaterial_Mathutils_Callback_Init()
 
 PyMethodDef KX_BlenderMaterial::Methods[] =
 {
-	KX_PYMETHODTABLE(KX_BlenderMaterial, getShader),
-	KX_PYMETHODTABLE( KX_BlenderMaterial, getTextureBindcode),
-	KX_PYMETHODTABLE(KX_BlenderMaterial, setBlending),
+	EXP_PYMETHODTABLE(KX_BlenderMaterial, getShader),
+	EXP_PYMETHODTABLE(KX_BlenderMaterial, getTextureBindcode),
+	EXP_PYMETHODTABLE(KX_BlenderMaterial, setBlending),
 	{nullptr, nullptr} //Sentinel
 };
 
 PyAttributeDef KX_BlenderMaterial::Attributes[] = {
-	KX_PYATTRIBUTE_RO_FUNCTION("shader", KX_BlenderMaterial, pyattr_get_shader),
-	KX_PYATTRIBUTE_RO_FUNCTION("textures", KX_BlenderMaterial, pyattr_get_textures),
-	KX_PYATTRIBUTE_RW_FUNCTION("blending", KX_BlenderMaterial, pyattr_get_blending, pyattr_set_blending),
-	KX_PYATTRIBUTE_RW_FUNCTION("alpha", KX_BlenderMaterial, pyattr_get_alpha, pyattr_set_alpha),
+	EXP_PYATTRIBUTE_RO_FUNCTION("shader", KX_BlenderMaterial, pyattr_get_shader),
+	EXP_PYATTRIBUTE_RO_FUNCTION("textures", KX_BlenderMaterial, pyattr_get_textures),
+	EXP_PYATTRIBUTE_RW_FUNCTION("blending", KX_BlenderMaterial, pyattr_get_blending, pyattr_set_blending),
+	EXP_PYATTRIBUTE_RW_FUNCTION("alpha", KX_BlenderMaterial, pyattr_get_alpha, pyattr_set_alpha),
+	//EXP_PYATTRIBUTE_RW_FUNCTION("hardness", KX_BlenderMaterial, pyattr_get_hardness, pyattr_set_hardness),
+	EXP_PYATTRIBUTE_RW_FUNCTION("specularIntensity", KX_BlenderMaterial, pyattr_get_specular_intensity, pyattr_set_specular_intensity),
+	EXP_PYATTRIBUTE_RW_FUNCTION("specularColor", KX_BlenderMaterial, pyattr_get_specular_color, pyattr_set_specular_color),
+	//EXP_PYATTRIBUTE_RW_FUNCTION("diffuseIntensity", KX_BlenderMaterial, pyattr_get_diffuse_intensity, pyattr_set_diffuse_intensity),
+	EXP_PYATTRIBUTE_RW_FUNCTION("diffuseColor", KX_BlenderMaterial, pyattr_get_diffuse_color, pyattr_set_diffuse_color),
+	//EXP_PYATTRIBUTE_RW_FUNCTION("emit", KX_BlenderMaterial, pyattr_get_emit, pyattr_set_emit),
+	//EXP_PYATTRIBUTE_RW_FUNCTION("ambient", KX_BlenderMaterial, pyattr_get_ambient, pyattr_set_ambient),
+	//EXP_PYATTRIBUTE_RW_FUNCTION("specularAlpha", KX_BlenderMaterial, pyattr_get_specular_alpha, pyattr_set_specular_alpha),
 
-	KX_PYATTRIBUTE_NULL //Sentinel
+	EXP_PYATTRIBUTE_NULL //Sentinel
 };
 
 PyTypeObject KX_BlenderMaterial::Type = {
 	PyVarObject_HEAD_INIT(nullptr, 0)
 	"KX_BlenderMaterial",
-	sizeof(PyObjectPlus_Proxy),
+	sizeof(EXP_PyObjectPlus_Proxy),
 	0,
 	py_base_dealloc,
 	0,
@@ -470,67 +611,61 @@ PyTypeObject KX_BlenderMaterial::Type = {
 	Methods,
 	0,
 	0,
-	&CValue::Type,
+	&EXP_Value::Type,
 	0, 0, 0, 0, 0, 0,
 	py_base_new
 };
 
-PyObject *KX_BlenderMaterial::pyattr_get_shader(PyObjectPlus *self_v, const KX_PYATTRIBUTE_DEF *attrdef)
+PyObject *KX_BlenderMaterial::pyattr_get_shader(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef)
 {
 	KX_BlenderMaterial *self = static_cast<KX_BlenderMaterial *>(self_v);
 	return self->PygetShader(nullptr, nullptr);
 }
 
-static int kx_blender_material_get_textures_size_cb(void *self_v)
+unsigned int KX_BlenderMaterial::py_get_textures_size()
 {
 	return RAS_Texture::MaxUnits;
 }
 
-static PyObject *kx_blender_material_get_textures_item_cb(void *self_v, int index)
+PyObject *KX_BlenderMaterial::py_get_textures_item(unsigned int index)
 {
-	BL_Texture *tex = (BL_Texture *)((KX_BlenderMaterial *)self_v)->GetTexture(index);
+	BL_Texture *tex = static_cast<BL_Texture *>(m_textures[index]);
 	PyObject *item = nullptr;
 	if (tex) {
 		item = tex->GetProxy();
 	}
 	else {
-		item = Py_None;
-		Py_INCREF(Py_None);
+		Py_RETURN_NONE;
 	}
 	return item;
 }
 
-static const std::string kx_blender_material_get_textures_item_name_cb(void *self_v, int index)
+std::string KX_BlenderMaterial::py_get_textures_item_name(unsigned int index)
 {
-	BL_Texture *tex = (BL_Texture *)((KX_BlenderMaterial *)self_v)->GetTexture(index);
+	BL_Texture *tex = static_cast<BL_Texture *>(m_textures[index]);
 	return (tex ? tex->GetName() : "");
 }
 
-PyObject *KX_BlenderMaterial::pyattr_get_textures(PyObjectPlus *self_v, const KX_PYATTRIBUTE_DEF *attrdef)
+PyObject *KX_BlenderMaterial::pyattr_get_textures(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef)
 {
-	return (new CListWrapper(self_v,
-							 ((KX_BlenderMaterial *)self_v)->GetProxy(),
-							 nullptr,
-							 kx_blender_material_get_textures_size_cb,
-							 kx_blender_material_get_textures_item_cb,
-							 kx_blender_material_get_textures_item_name_cb,
-							 nullptr))->NewProxy(true);
+	return (new EXP_ListWrapper<KX_BlenderMaterial, &KX_BlenderMaterial::py_get_textures_size, &KX_BlenderMaterial::py_get_textures_item,
+				nullptr, &KX_BlenderMaterial::py_get_textures_item_name>(self_v))->NewProxy(true);
 }
 
-PyObject *KX_BlenderMaterial::pyattr_get_blending(PyObjectPlus *self_v, const KX_PYATTRIBUTE_DEF *attrdef)
+PyObject *KX_BlenderMaterial::pyattr_get_blending(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef)
 {
 	KX_BlenderMaterial *self = static_cast<KX_BlenderMaterial *>(self_v);
-	unsigned int *bfunc = self->GetBlendFunc();
+	const RAS_Rasterizer::BlendFunc *bfunc = self->GetBlendFunc();
 	return Py_BuildValue("(ll)", (long int)bfunc[0], (long int)bfunc[1]);
 }
 
-PyObject *KX_BlenderMaterial::pyattr_get_alpha(PyObjectPlus *self_v, const KX_PYATTRIBUTE_DEF *attrdef)
+PyObject *KX_BlenderMaterial::pyattr_get_alpha(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef)
 {
 	KX_BlenderMaterial *self = static_cast<KX_BlenderMaterial *>(self_v);
 	return PyFloat_FromDouble(self->GetBlenderMaterial()->alpha);
 }
 
-int KX_BlenderMaterial::pyattr_set_alpha(PyObjectPlus *self_v, const KX_PYATTRIBUTE_DEF *attrdef, PyObject *value)
+int KX_BlenderMaterial::pyattr_set_alpha(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef, PyObject *value)
 {
 	KX_BlenderMaterial *self = static_cast<KX_BlenderMaterial *>(self_v);
 	float val = PyFloat_AsDouble(value);
@@ -546,28 +681,223 @@ int KX_BlenderMaterial::pyattr_set_alpha(PyObjectPlus *self_v, const KX_PYATTRIB
 	return PY_SET_ATTR_SUCCESS;
 }
 
-int KX_BlenderMaterial::pyattr_set_blending(PyObjectPlus *self_v, const KX_PYATTRIBUTE_DEF *attrdef, PyObject *value)
+//PyObject *KX_BlenderMaterial::pyattr_get_specular_alpha(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef)
+//{
+//	KX_BlenderMaterial *self = static_cast<KX_BlenderMaterial *>(self_v);
+//	return PyFloat_FromDouble(self->GetBlenderMaterial()->spectra);
+//}
+//
+//int KX_BlenderMaterial::pyattr_set_specular_alpha(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef, PyObject *value)
+//{
+//	KX_BlenderMaterial *self = static_cast<KX_BlenderMaterial *>(self_v);
+//	float val = PyFloat_AsDouble(value);
+//
+//	if (val == -1 && PyErr_Occurred()) {
+//		PyErr_Format(PyExc_AttributeError, "material.%s = float: KX_BlenderMaterial, expected a float", attrdef->m_name.c_str());
+//		return PY_SET_ATTR_FAIL;
+//	}
+//
+//	CLAMP(val, 0.0f, 1.0f);
+//
+//	self->GetBlenderMaterial()->spectra = val;
+//	return PY_SET_ATTR_SUCCESS;
+//}
+//
+//PyObject *KX_BlenderMaterial::pyattr_get_hardness(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef)
+//{
+//	KX_BlenderMaterial *self = static_cast<KX_BlenderMaterial *>(self_v);
+//	return PyLong_FromLong(self->GetBlenderMaterial()->har);
+//}
+//
+//int KX_BlenderMaterial::pyattr_set_hardness(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef, PyObject *value)
+//{
+//	KX_BlenderMaterial *self = static_cast<KX_BlenderMaterial *>(self_v);
+//	int val = PyLong_AsLong(value);
+//
+//	if (val == -1 && PyErr_Occurred()) {
+//		PyErr_Format(PyExc_AttributeError, "material.%s = int: KX_BlenderMaterial, expected a int", attrdef->m_name.c_str());
+//		return PY_SET_ATTR_FAIL;
+//	}
+//
+//	CLAMP(val, 1, 511);
+//
+//	self->GetBlenderMaterial()->har = val;
+//	return PY_SET_ATTR_SUCCESS;
+//}
+
+PyObject *KX_BlenderMaterial::pyattr_get_specular_intensity(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef)
+{
+	KX_BlenderMaterial *self = static_cast<KX_BlenderMaterial *>(self_v);
+	return PyFloat_FromDouble(self->GetBlenderMaterial()->spec);
+}
+
+int KX_BlenderMaterial::pyattr_set_specular_intensity(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef, PyObject *value)
+{
+	KX_BlenderMaterial *self = static_cast<KX_BlenderMaterial *>(self_v);
+	float val = PyFloat_AsDouble(value);
+
+	if (val == -1 && PyErr_Occurred()) {
+		PyErr_Format(PyExc_AttributeError, "material.%s = float: KX_BlenderMaterial, expected a float", attrdef->m_name.c_str());
+		return PY_SET_ATTR_FAIL;
+	}
+
+	CLAMP(val, 0.0f, 1.0f);
+
+	self->GetBlenderMaterial()->spec = val;
+	return PY_SET_ATTR_SUCCESS;
+}
+
+PyObject *KX_BlenderMaterial::pyattr_get_specular_color(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef)
+{
+#ifdef USE_MATHUTILS
+	return Color_CreatePyObject_cb(EXP_PROXY_FROM_REF(self_v), mathutils_kxblendermaterial_color_cb_index, MATHUTILS_COL_CB_MATERIAL_SPECULAR_COLOR);
+#else
+	KX_BlenderMaterial *self = static_cast<KX_BlenderMaterial *>(self_v);
+	Material *mat = self->GetBlenderMaterial();
+	return PyColorFromVector(mt::vec3(mat->specr, mat->specg, mat->specb));
+#endif
+}
+
+int KX_BlenderMaterial::pyattr_set_specular_color(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef, PyObject *value)
+{
+	KX_BlenderMaterial *self = static_cast<KX_BlenderMaterial *>(self_v);
+	mt::vec3 color;
+	if (!PyVecTo(value, color)) {
+		return PY_SET_ATTR_FAIL;
+	}
+
+	Material *mat = self->GetBlenderMaterial();
+	mat->specr = color[0];
+	mat->specg = color[1];
+	mat->specb = color[2];
+	return PY_SET_ATTR_SUCCESS;
+}
+
+//PyObject *KX_BlenderMaterial::pyattr_get_diffuse_intensity(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef)
+//{
+//	KX_BlenderMaterial *self = static_cast<KX_BlenderMaterial *>(self_v);
+//	return PyFloat_FromDouble(self->GetBlenderMaterial()->ref);
+//}
+//
+//int KX_BlenderMaterial::pyattr_set_diffuse_intensity(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef, PyObject *value)
+//{
+//	KX_BlenderMaterial *self = static_cast<KX_BlenderMaterial *>(self_v);
+//	float val = PyFloat_AsDouble(value);
+//
+//	if (val == -1 && PyErr_Occurred()) {
+//		PyErr_Format(PyExc_AttributeError, "material.%s = float: KX_BlenderMaterial, expected a float", attrdef->m_name.c_str());
+//		return PY_SET_ATTR_FAIL;
+//	}
+//
+//	CLAMP(val, 0.0f, 1.0f);
+//
+//	self->GetBlenderMaterial()->ref = val;
+//	return PY_SET_ATTR_SUCCESS;
+//}
+
+PyObject *KX_BlenderMaterial::pyattr_get_diffuse_color(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef)
+{
+#ifdef USE_MATHUTILS
+	return Color_CreatePyObject_cb(EXP_PROXY_FROM_REF(self_v), mathutils_kxblendermaterial_color_cb_index, MATHUTILS_COL_CB_MATERIAL_DIFFUSE_COLOR);
+#else
+	KX_BlenderMaterial *self = static_cast<KX_BlenderMaterial *>(self_v);
+	Material *mat = self->GetBlenderMaterial();
+	return PyColorFromVector(mt::vec3(mat->r, mat->g, mat->b));
+#endif
+}
+
+int KX_BlenderMaterial::pyattr_set_diffuse_color(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef, PyObject *value)
+{
+	KX_BlenderMaterial *self = static_cast<KX_BlenderMaterial *>(self_v);
+	mt::vec3 color;
+	if (!PyVecTo(value, color)) {
+		return PY_SET_ATTR_FAIL;
+	}
+
+	Material *mat = self->GetBlenderMaterial();
+	mat->r = color[0];
+	mat->g = color[1];
+	mat->b = color[2];
+	return PY_SET_ATTR_SUCCESS;
+}
+
+//PyObject *KX_BlenderMaterial::pyattr_get_emit(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef)
+//{
+//	KX_BlenderMaterial *self = static_cast<KX_BlenderMaterial *>(self_v);
+//	return PyFloat_FromDouble(self->GetBlenderMaterial()->emit);
+//}
+//
+//int KX_BlenderMaterial::pyattr_set_emit(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef, PyObject *value)
+//{
+//	KX_BlenderMaterial *self = static_cast<KX_BlenderMaterial *>(self_v);
+//	float val = PyFloat_AsDouble(value);
+//
+//	if (val == -1 && PyErr_Occurred()) {
+//		PyErr_Format(PyExc_AttributeError, "material.%s = float: KX_BlenderMaterial, expected a float", attrdef->m_name.c_str());
+//		return PY_SET_ATTR_FAIL;
+//	}
+//
+//	CLAMP(val, 0.0f, 2.0f);
+//
+//	self->GetBlenderMaterial()->emit = val;
+//	return PY_SET_ATTR_SUCCESS;
+//}
+//
+//PyObject *KX_BlenderMaterial::pyattr_get_ambient(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef)
+//{
+//	KX_BlenderMaterial *self = static_cast<KX_BlenderMaterial *>(self_v);
+//	return PyFloat_FromDouble(self->GetBlenderMaterial()->amb);
+//}
+//
+//int KX_BlenderMaterial::pyattr_set_ambient(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef, PyObject *value)
+//{
+//	KX_BlenderMaterial *self = static_cast<KX_BlenderMaterial *>(self_v);
+//	float val = PyFloat_AsDouble(value);
+//
+//	if (val == -1 && PyErr_Occurred()) {
+//		PyErr_Format(PyExc_AttributeError, "material.%s = float: KX_BlenderMaterial, expected a float", attrdef->m_name.c_str());
+//		return PY_SET_ATTR_FAIL;
+//	}
+//
+//	CLAMP(val, 0.0f, 1.0f);
+//
+//	self->GetBlenderMaterial()->amb = val;
+//	return PY_SET_ATTR_SUCCESS;
+//}
+
+int KX_BlenderMaterial::pyattr_set_blending(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef, PyObject *value)
 {
 	KX_BlenderMaterial *self = static_cast<KX_BlenderMaterial *>(self_v);
 	PyObject *obj = self->PysetBlending(value, nullptr);
-	if (obj)
-	{
+	if (obj) {
 		Py_DECREF(obj);
 		return 0;
 	}
 	return -1;
 }
 
-KX_PYMETHODDEF_DOC(KX_BlenderMaterial, getShader, "getShader()")
+EXP_PYMETHODDEF_DOC(KX_BlenderMaterial, getShader, "getShader()")
 {
+	// returns Py_None on error
+	// the calling script will need to check
+
 	if (!m_shader) {
-		m_shader.reset(new KX_MaterialShader());
-		// Set the material to use custom shader.
-		m_flag &= ~RAS_BLENDERGLSL;
-		m_scene->GetBucketManager()->UpdateShaders(this);
+		m_shader = new BL_Shader(this);
 	}
 
-	return m_shader->GetShader()->GetProxy();
+	if (!m_shader->GetError()) {
+		return m_shader->GetProxy();
+	}
+	// We have a shader but invalid.
+	else {
+		// decref all references to the object
+		// then delete it!
+		// We will then go back to fixed functionality
+		// for this material
+		delete m_shader; /* will handle python de-referencing */
+		m_shader = nullptr;
+	}
+	Py_RETURN_NONE;
 }
 
 static const unsigned int GL_array[11] = {
@@ -584,7 +914,7 @@ static const unsigned int GL_array[11] = {
 	RAS_Rasterizer::RAS_SRC_ALPHA_SATURATE
 };
 
-KX_PYMETHODDEF_DOC(KX_BlenderMaterial, setBlending, "setBlending(bge.logic.src, bge.logic.dest)")
+EXP_PYMETHODDEF_DOC(KX_BlenderMaterial, setBlending, "setBlending(bge.logic.src, bge.logic.dest)")
 {
 	unsigned int b[2];
 	if (PyArg_ParseTuple(args, "ii:setBlending", &b[0], &b[1])) {
@@ -592,11 +922,11 @@ KX_PYMETHODDEF_DOC(KX_BlenderMaterial, setBlending, "setBlending(bge.logic.src, 
 		for (int i = 0; i < 11; i++) {
 			if (b[0] == GL_array[i]) {
 				value_found[0] = true;
-				m_blendFunc[0] = b[0];
+				m_blendFunc[0] = (RAS_Rasterizer::BlendFunc)b[0];
 			}
 			if (b[1] == GL_array[i]) {
 				value_found[1] = true;
-				m_blendFunc[1] = b[1];
+				m_blendFunc[1] = (RAS_Rasterizer::BlendFunc)b[1];
 			}
 			if (value_found[0] && value_found[1]) {
 				break;
@@ -612,9 +942,9 @@ KX_PYMETHODDEF_DOC(KX_BlenderMaterial, setBlending, "setBlending(bge.logic.src, 
 	return nullptr;
 }
 
-KX_PYMETHODDEF_DOC(KX_BlenderMaterial, getTextureBindcode, "getTextureBindcode(texslot)")
+EXP_PYMETHODDEF_DOC(KX_BlenderMaterial, getTextureBindcode, "getTextureBindcode(texslot)")
 {
-	ShowDeprecationWarning("material.getTextureBindcode(texslot)", "material.textures[texslot].bindCode");
+	EXP_ShowDeprecationWarning("material.getTextureBindcode(texslot)", "material.textures[texslot].bindCode");
 	unsigned int texslot;
 	if (!PyArg_ParseTuple(args, "i:texslot", &texslot)) {
 		PyErr_SetString(PyExc_ValueError, "material.getTextureBindcode(texslot): KX_BlenderMaterial, expected an int.");
@@ -650,11 +980,11 @@ bool ConvertPythonToMaterial(PyObject *value, KX_BlenderMaterial **material, boo
 	}
 
 	if (PyObject_TypeCheck(value, &KX_BlenderMaterial::Type)) {
-		KX_BlenderMaterial *mat = static_cast<KX_BlenderMaterial *>BGE_PROXY_REF(value);
+		KX_BlenderMaterial *mat = static_cast<KX_BlenderMaterial *>EXP_PROXY_REF(value);
 
 		/* sets the error */
 		if (mat == nullptr) {
-			PyErr_Format(PyExc_SystemError, "%s, " BGE_PROXY_ERROR_MSG, error_prefix);
+			PyErr_Format(PyExc_SystemError, "%s, " EXP_PROXY_ERROR_MSG, error_prefix);
 			return false;
 		}
 

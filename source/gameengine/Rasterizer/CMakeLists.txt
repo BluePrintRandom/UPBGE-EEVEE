@@ -25,33 +25,29 @@
 
 set(INC
 	.
+	Node
 	RAS_OpenGLRasterizer
 	../Common
+	../Converter
 	../Expressions
 	../Ketsji
 	../Physics/Common
 	../SceneGraph
 	../GameLogic
+	../../blender/makesdna
 	../../blender/blenfont
 	../../blender/blenlib
 	../../blender/blenkernel
-	../../blender/blentranslation
-	../../blender/draw
-	../../blender/draw/intern
-	../../blender/draw/engines/eevee/
 	../../blender/gpu
 	../../blender/imbuf
-	../../blender/makesdna
-	../../blender/makesrna
-	../../blender/render/extern/include
-	../../blender/render/intern/include
 	../../../intern/glew-mx
 	../../../intern/guardedalloc
 	../../../intern/termcolor
 )
 
 set(INC_SYS
-	../../../intern/moto/include
+	../../../intern/debugbreak
+	../../../intern/mathfu
 	${GLEW_INCLUDE_PATH}
 	${PYTHON_INCLUDE_DIRS}
 	${BOOST_INCLUDE_DIR}
@@ -61,34 +57,45 @@ set(SRC
 	RAS_2DFilter.cpp
 	RAS_2DFilterData.cpp
 	RAS_2DFilterManager.cpp
-	RAS_2DFilterFrameBuffer.cpp
+	RAS_2DFilterOffScreen.cpp
+	RAS_AttributeArray.cpp
+	RAS_AttributeArrayStorage.cpp
+	RAS_BatchDisplayArray.cpp
+	RAS_BatchGroup.cpp
 	RAS_BoundingBox.cpp
 	RAS_BoundingBoxManager.cpp
 	RAS_BucketManager.cpp
 	RAS_DebugDraw.cpp
 	RAS_Deformer.cpp
+	RAS_DisplayArray.cpp
 	RAS_DisplayArrayBucket.cpp
-	RAS_FrameBuffer.cpp
+	RAS_DisplayArrayStorage.cpp
 	RAS_FramingManager.cpp
 	RAS_ICanvas.cpp
-	RAS_IDisplayArray.cpp
-	RAS_IPolygonMaterial.cpp
+	RAS_InstancingBuffer.cpp
+	RAS_IMaterial.cpp
 	RAS_Rasterizer.cpp
-	RAS_ITexVert.cpp
 	RAS_MaterialBucket.cpp
 	RAS_MeshMaterial.cpp
-	RAS_MeshObject.cpp
+	RAS_Mesh.cpp
 	RAS_MeshSlot.cpp
 	RAS_MeshUser.cpp
-	RAS_Polygon.cpp
+	RAS_OffScreen.cpp
+	RAS_Query.cpp
 	RAS_Shader.cpp
 	RAS_Texture.cpp
+	RAS_TextureRenderer.cpp
 	RAS_TextUser.cpp
- 	
+	RAS_VertexInfo.cpp
+
 	RAS_2DFilterData.h
 	RAS_2DFilter.h
 	RAS_2DFilterManager.h
-	RAS_2DFilterFrameBuffer.h
+	RAS_2DFilterOffScreen.h
+	RAS_AttributeArray.h
+	RAS_AttributeArrayStorage.h
+	RAS_BatchDisplayArray.h
+	RAS_BatchGroup.h
 	RAS_BoundingBox.h
 	RAS_BoundingBoxManager.h
 	RAS_BucketManager.h
@@ -97,26 +104,27 @@ set(SRC
 	RAS_Deformer.h
 	RAS_DisplayArray.h
 	RAS_DisplayArrayBucket.h
-	RAS_FrameBuffer.h
+	RAS_DisplayArrayStorage.h
 	RAS_FramingManager.h
 	RAS_ICanvas.h
-	RAS_IDisplayArray.h
-	RAS_IPolygonMaterial.h
+	RAS_IMaterial.h
 	RAS_Rasterizer.h
 	RAS_ILightObject.h
-	RAS_ITexVert.h
+	RAS_InstancingBuffer.h
+	RAS_ISync.h
 	RAS_MaterialBucket.h
-	RAS_MaterialShader.h
 	RAS_MeshMaterial.h
-	RAS_MeshObject.h
+	RAS_Mesh.h
 	RAS_MeshSlot.h
 	RAS_MeshUser.h
-	RAS_Polygon.h
+	RAS_OffScreen.h
+	RAS_Query.h
 	RAS_Rect.h
 	RAS_Shader.h
 	RAS_Texture.h
+	RAS_TextureRenderer.h
 	RAS_TextUser.h
-	RAS_TexVert.h
+	RAS_VertexInfo.h
 )
 
 data_to_c_simple(RAS_OpenGLFilters/RAS_Blur2DFilter.glsl SRC)

@@ -178,7 +178,7 @@ GPUTexture *GPU_texture_create_cube(
 GPUTexture *GPU_texture_create_from_vertbuf(
         struct GPUVertBuf *vert);
 GPUTexture *GPU_texture_create_buffer(
-        GPUTextureFormat data_type, const uint buffer);
+        GPUTextureFormat data_type, const unsigned int buffer);
 
 GPUTexture *GPU_texture_from_bindcode(int textarget, int bindcode);
 GPUTexture *GPU_texture_from_blender(

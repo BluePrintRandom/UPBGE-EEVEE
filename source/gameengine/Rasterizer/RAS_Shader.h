@@ -6,13 +6,11 @@
 #ifndef __RAS_SHADER_H__
 #define __RAS_SHADER_H__
 
-#include "RAS_Texture.h" // For RAS_Texture::MaxUnits.
-#include "RAS_Rasterizer.h" // For RAS_Rasterizer::TexCoGenList.
-
-#include "MT_Matrix4x4.h"
+#include "mathfu.h"
 
 #include <string>
 #include <vector>
+#include <unordered_map>
 
 #define SORT_UNIFORMS 1
 
@@ -38,7 +36,6 @@ public:
 		void *m_data; // Memory allocated for variable
 		bool m_dirty; // Caching variable
 		int m_type; // Enum UniformTypes
-		bool m_transpose; // Transpose matrices
 		const int m_dataLen; // Length of our data
 	public:
 		RAS_Uniform(int data_size);
@@ -111,6 +108,28 @@ public:
 	};
 
 protected:
+	struct UniformInfo
+	{
+		/// Hashed uniform name.
+		size_t nameHash;
+		/// Uniform location.
+		int location;
+
+		/** Construct uniform info
+		 * \param name The uniform name.
+		 * \param shader The shader used to retrieve uniform location.
+		 */
+		UniformInfo(const std::string& name, GPUShader *shader);
+
+		inline bool operator< (const UniformInfo& other) const
+		{
+			return (nameHash < other.nameHash);
+		}
+	};
+
+	// Uniform information sorted by hashed name value.
+	std::vector<UniformInfo> m_uniformInfos;
+
 	typedef std::vector<RAS_Uniform *> RAS_UniformVec;
 	typedef std::vector<RAS_DefUniform *> RAS_UniformVecDef;
 
@@ -131,8 +150,9 @@ protected:
 	std::string GetParsedProgram(ProgramType type) const;
 
 	// Compiles and links the shader
-	virtual bool LinkProgram(bool isCustomShader);
+	virtual bool LinkProgram();
 	void ValidateProgram();
+	void ExtractUniformInfos();
 
 	// search by location
 	RAS_Uniform *FindUniform(const int location);
@@ -144,12 +164,15 @@ public:
 	RAS_Shader();
 	virtual ~RAS_Shader();
 
+
 	bool GetError();
 	bool Ok() const;
 	GPUShader *GetGPUShader();
 
 	unsigned int GetProg();
-	virtual void SetProg(bool enable);
+
+	void BindProg();
+	void UnbindProg();
 
 	void SetEnabled(bool enabled);
 	bool GetEnabled() const;
@@ -160,14 +183,14 @@ public:
 	void DeleteShader();
 
 	// Update predefined uniforms each render call
-	void Update(RAS_Rasterizer *rasty, MT_Matrix4x4 model);
+	void Update(RAS_Rasterizer *rasty, const mt::mat4 &model);
 
 	void SetSampler(int loc, int unit);
 
 	void SetUniformfv(int location, int type, float *param, int size, unsigned int count, bool transpose = false);
 	void SetUniformiv(int location, int type, int *param, int size, unsigned int count, bool transpose = false);
 	int GetAttribLocation(const std::string& name);
-	void BindAttributes(const std::unordered_map<int, std::string>& attrs);
+	void BindAttribute(const std::string& attr, int loc);
 
 	/** Return uniform location in the shader.
 	 * \param name The uniform name.
@@ -175,11 +198,11 @@ public:
 	 */
 	int GetUniformLocation(const std::string& name, bool debug=true);
 
-	void SetUniform(int uniform, const MT_Vector2 &vec);
-	void SetUniform(int uniform, const MT_Vector3 &vec);
-	void SetUniform(int uniform, const MT_Vector4 &vec);
-	void SetUniform(int uniform, const MT_Matrix4x4 &vec, bool transpose = false);
-	void SetUniform(int uniform, const MT_Matrix3x3 &vec, bool transpose = false);
+	void SetUniform(int uniform, const mt::vec2 &vec);
+	void SetUniform(int uniform, const mt::vec3 &vec);
+	void SetUniform(int uniform, const mt::vec4 &vec);
+	void SetUniform(int uniform, const mt::mat4 &vec, bool transpose = false);
+	void SetUniform(int uniform, const mt::mat3 &vec, bool transpose = false);
 	void SetUniform(int uniform, const float &val);
 	void SetUniform(int uniform, const float *val, int len);
 	void SetUniform(int uniform, const int *val, int len);

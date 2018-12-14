@@ -27,13 +27,15 @@ set(INC
 	../Rasterizer
 	../SceneGraph
 	../../blender/blenlib
+	../../blender/blenkernel
 	../../../intern/ghost
 	../../../intern/string
 	../../../intern/termcolor
 )
 
 set(INC_SYS
-	../../../intern/moto/include
+	../../../intern/debugbreak
+	../../../intern/mathfu
 )
 
 set(SRC
@@ -48,7 +50,6 @@ set(SRC
 	DEV_Joystick.h
 	DEV_JoystickDefines.h
 	DEV_JoystickPrivate.h
-	DEV_JoystickMappingdb.h
 )
 
 if(WITH_SDL)

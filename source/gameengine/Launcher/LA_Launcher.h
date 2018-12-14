@@ -28,7 +28,6 @@
 #define __LA_LAUNCHER_H__
 
 #include "KX_KetsjiEngine.h"
-#include "KX_ISystem.h"
 
 #include "RAS_Rasterizer.h"
 
@@ -37,8 +36,7 @@
 #include <string>
 
 class KX_Scene;
-class KX_ISystem;
-class KX_BlenderConverter;
+class BL_Converter;
 class KX_NetworkMessageManager;
 class RAS_ICanvas;
 class DEV_EventConsumer;
@@ -56,9 +54,6 @@ protected:
 	Main *m_maggie;
 	KX_Scene *m_kxStartScene;
 
-	/// \section Exit state.
-	KX_ExitRequest m_exitRequested;
-	std::string m_exitString;
 	GlobalSettings *m_globalSettings;
 
 	/// GHOST system abstraction.
@@ -66,8 +61,6 @@ protected:
 
 	/// The gameengine itself.
 	KX_KetsjiEngine* m_ketsjiEngine;
-	/// The game engine's system abstraction.
-	KX_ISystem* m_kxsystem;
 	/// The game engine's input device abstraction.
 	DEV_InputDevice *m_inputDevice;
 	DEV_EventConsumer *m_eventConsumer;
@@ -76,14 +69,16 @@ protected:
 	/// The rasterizer.
 	RAS_Rasterizer *m_rasterizer;
 	/// Converts Blender data files.
-	KX_BlenderConverter *m_converter;
+	BL_Converter *m_converter;
 	/// Manage messages.
 	KX_NetworkMessageManager *m_networkMessageManager;
 
 #ifdef WITH_PYTHON
 	PyObject *m_globalDict;
-	PyObject *m_gameLogic;
 #endif  // WITH_PYTHON
+
+	bool m_alwaysUseExpandFraming;
+	float m_camZoom;
 
 	/// The number of render samples.
 	int m_samples;
@@ -97,7 +92,6 @@ protected:
 
 	/// Saved data to restore at the game end.
 	struct SavedData {
-		int vsync;
 		RAS_Rasterizer::MipmapOption mipmap;
 		int anisotropic;
 	} m_savedData;
@@ -124,16 +118,15 @@ protected:
 	virtual void RunPythonMainLoop(const std::string& pythonCode);
 #endif  // WITH_PYTHON
 
-	virtual RAS_ICanvas *CreateCanvas() = 0;
+	virtual RAS_ICanvas *CreateCanvas(RAS_Rasterizer *rasty) = 0;
 	virtual RAS_Rasterizer::DrawType GetRasterizerDrawMode() = 0;
-	virtual bool GetUseAlwaysExpandFraming() = 0;
 	virtual void InitCamera() = 0;
-	virtual void InitPython() = 0;
-	virtual void ExitPython() = 0;
+
+	virtual void SetWindowOrder(short order) = 0;
 
 public:
 	LA_Launcher(GHOST_ISystem *system, Main *maggie, Scene *scene, GlobalSettings *gs,
-				RAS_Rasterizer::StereoMode stereoMode, int samples, int argc, char **argv);
+				RAS_Rasterizer::StereoMode stereoMode, int samples, bool alwaysUseExpandFraming, int argc, char **argv);
 	virtual ~LA_Launcher();
 
 #ifdef WITH_PYTHON
@@ -141,8 +134,6 @@ public:
 	void SetPythonGlobalDict(PyObject *globalDict);
 #endif  // WITH_PYTHON
 
-	KX_ExitRequest GetExitRequested();
-	const std::string& GetExitString();
 	GlobalSettings *GetGlobalSettings();
 
 	inline KX_Scene *GetStartScene() const
@@ -156,9 +147,9 @@ public:
 	virtual void ExitEngine();
 
 	/// Compute next frame.
-	virtual bool EngineNextFrame();
+	virtual KX_ExitInfo EngineNextFrame();
 	/// Execute the loop of the engine, return when receive a exit request from the engine.
-	void EngineMainLoop();
+	KX_ExitInfo EngineMainLoop();
 
 #ifdef WITH_PYTHON
 	static int PythonEngineNextFrame(void *state);

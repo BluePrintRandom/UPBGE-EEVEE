@@ -34,11 +34,11 @@
 
 #include "EXP_Python.h"
 #include <string>
-#include "MT_Vector3.h"
 
 #include "DEV_JoystickDefines.h" // For JOYINDEX_MAX
 
 class KX_KetsjiEngine;
+struct Main;
 
 #ifdef WITH_PYTHON
 PyMODINIT_FUNC initBGE(void);
@@ -47,16 +47,16 @@ PyMODINIT_FUNC initGameLogicPythonBinding(void);
 PyMODINIT_FUNC initGameKeysPythonBinding(void);
 PyMODINIT_FUNC initRasterizerPythonBinding(void);
 PyMODINIT_FUNC initVideoTexturePythonBinding(void);
-void initGamePlayerPythonScripting(struct Main *maggie, int argc, char **argv);
-void initGamePythonScripting(struct Main *maggie);
 
 // Add a python include path.
 void appendPythonPath(const std::string& path);
 
-void exitGamePlayerPythonScripting();
-void exitGamePythonScripting();
-void setupGamePython(KX_KetsjiEngine *ketsjiengine, Main *blenderdata,
-                     PyObject *pyGlobalDict, PyObject **gameLogic, int argc, char **argv);
+void initPlayerPython(int argc, char **argv);
+void exitPlayerPython();
+
+void initGamePython(Main *main, PyObject *pyGlobalDict);
+void exitGamePython();
+
 std::string pathGamePythonConfig();
 void saveGamePythonConfig();
 void loadGamePythonConfig();
@@ -68,8 +68,8 @@ void createPythonConsole();
 void updatePythonJoysticks(short (&addrem)[JOYINDEX_MAX]);
 #endif
 
-void addImportMain(struct Main *maggie);
-void removeImportMain(struct Main *maggie);
+void addImportMain(Main *maggie);
+void removeImportMain(Main *maggie);
 
 typedef int (*PyNextFrameFunc)(void *);
 

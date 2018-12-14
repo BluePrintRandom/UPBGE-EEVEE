@@ -32,32 +32,89 @@
 #ifndef __KX_WORLDINFO_H__
 #define __KX_WORLDINFO_H__
 
-#include "MT_Scalar.h"
-#include "MT_Vector4.h"
-#include "KX_KetsjiEngine.h"
-#include "EXP_PyObjectPlus.h"
+#include "mathfu.h"
+#include "EXP_Value.h"
 
+#ifdef USE_MATHUTILS
+void KX_WorldInfo_Mathutils_Callback_Init(void);
+#endif
+
+class RAS_Rasterizer;
+struct GPUMaterial;
 struct Scene;
 struct World;
 
-class KX_WorldInfo : public PyObjectPlus
+class KX_WorldInfo : public EXP_Value, public mt::SimdClassAllocator
 {
 	Py_Header
 
 	std::string m_name;
 	Scene *m_scene;
+	GPUMaterial *m_gpuMat;
+	bool m_hasworld;
+	bool m_hasmist;
+	bool m_hasEnvLight;
+	short m_misttype;
+	short m_envLightColor;
+	float m_miststart;
+	float m_mistdistance;
+	float m_mistintensity;
+	float m_range;
+	float m_exposure;
+	float m_envLightEnergy;
+	mt::vec3 m_mistcolor;
+	mt::vec4 m_horizoncolor;
+	mt::vec4 m_zenithcolor;
+	mt::vec3 m_ambientcolor;
+
+	struct {
+		mt::vec3 horizonColor;
+		mt::vec3 zenithColor;
+	} m_savedData;
 
 public:
+	/**
+	 * Mist options
+	 */
+	enum MistType {
+		KX_MIST_QUADRATIC,
+		KX_MIST_LINEAR,
+		KX_MIST_INV_QUADRATIC,
+	};
 
 	KX_WorldInfo(Scene *blenderscene, World *blenderworld);
 	~KX_WorldInfo();
 
-	void RenderBackground();
+	virtual std::string GetName();
 
-	const std::string& GetName();
+	void ReloadMaterial();
+	bool hasWorld();
+	void setMistStart(float d);
+	void setMistDistance(float d);
+	void setMistIntensity(float intensity);
+	void setExposure(float exposure);
+	void setRange(float range);
+	void setMistColor(const mt::vec3& mistcolor);
+	void setHorizonColor(const mt::vec4& horizoncolor);
+	void setZenithColor(const mt::vec4& zenithcolor);
+	void setAmbientColor(const mt::vec3& ambientcolor);
+	void UpdateBackGround(RAS_Rasterizer *rasty);
+	void UpdateWorldSettings(RAS_Rasterizer *rasty);
+	void RenderBackground(RAS_Rasterizer *rasty);
 
 #ifdef WITH_PYTHON
-	virtual PyObject *py_repr(void);
+	/* attributes */
+	static PyObject *pyattr_get_mist_typeconst(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef);
+	static PyObject *pyattr_get_mist_color(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef);
+	static int pyattr_set_mist_color(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef, PyObject *value);
+	static PyObject *pyattr_get_horizon_color(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef);
+	static int pyattr_set_horizon_color(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef, PyObject *value);
+	static PyObject *pyattr_get_background_color(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef);
+	static int pyattr_set_background_color(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef, PyObject *value);
+	static PyObject *pyattr_get_zenith_color(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef);
+	static int pyattr_set_zenith_color(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef, PyObject *value);
+	static PyObject *pyattr_get_ambient_color(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef);
+	static int pyattr_set_ambient_color(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef, PyObject *value);
 #endif
 };
 

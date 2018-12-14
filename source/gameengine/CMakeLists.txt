@@ -25,10 +25,17 @@
 
 remove_extra_strict_flags()
 
+blender_include_dirs_sys("${TBB_INCLUDE_DIR}")
+
 # there are too many inter-includes so best define here
 if(WITH_PYTHON)
 	blender_include_dirs_sys("${PYTHON_INCLUDE_DIRS}")
 	add_definitions(-DWITH_PYTHON)
+endif()
+
+if(WITH_GAMEENGINE_TEST)
+	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${SANITIZER_OPTIONS}")
+	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${SANITIZER_OPTIONS}")
 endif()
 
 add_subdirectory(BlenderRoutines)
@@ -42,6 +49,7 @@ add_subdirectory(Ketsji/KXNetwork)
 add_subdirectory(Launcher)
 add_subdirectory(Physics/Dummy)
 add_subdirectory(Rasterizer)
+add_subdirectory(Rasterizer/Node)
 add_subdirectory(Rasterizer/RAS_OpenGLRasterizer)
 add_subdirectory(SceneGraph)
 

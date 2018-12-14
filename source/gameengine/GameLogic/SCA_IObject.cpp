@@ -36,275 +36,279 @@
 #include "SCA_ISensor.h"
 #include "SCA_IController.h"
 #include "SCA_IActuator.h"
-#include "MT_Vector3.h"
 #include "EXP_ListValue.h"
 
-MT_Vector3 SCA_IObject::m_sDummy=MT_Vector3(0,0,0);
+#include "CM_List.h"
+
 SG_QList SCA_IObject::m_activeBookmarkedControllers;
 
-SCA_IObject::SCA_IObject():
-	CValue(),
+SCA_IObject::SCA_IObject()
+	:m_suspended(false),
 	m_initState(0),
 	m_state(0),
 	m_firstState(nullptr)
 {
-	m_suspended = false;
+}
+
+SCA_IObject::SCA_IObject(const SCA_IObject& other)
+	:EXP_Value(other),
+	m_sensors(other.m_sensors),
+	m_controllers(other.m_controllers),
+	m_actuators(other.m_actuators),
+	m_suspended(other.m_suspended),
+	m_initState(other.m_initState),
+	m_state(0),
+	m_firstState(other.m_firstState)
+{
+	/* Registered objects and actuator are intentionally left empty.
+	 * A new object cannot be client of any actuator. */
 }
 
 SCA_IObject::~SCA_IObject()
 {
-	SCA_SensorList::iterator its;
-	for (its = m_sensors.begin(); !(its == m_sensors.end()); ++its)
-	{
-		//Use Delete for sensor to ensure proper cleaning
-		(*its)->Delete();
-		//((CValue*)(*its))->Release();
+	for (SCA_ISensor *sensor : m_sensors) {
+		// Use Delete for sensor to ensure proper cleaning.
+		sensor->Delete();
 	}
-	SCA_ControllerList::iterator itc; 
-	for (itc = m_controllers.begin(); !(itc == m_controllers.end()); ++itc)
-	{
-		//Use Delete for controller to ensure proper cleaning (expression controller)
-		(*itc)->Delete();
-		//((CValue*)(*itc))->Release();
+	for (SCA_IController *controller : m_controllers) {
+		// Use Delete for controller to ensure proper cleaning (expression controller).
+		controller->Delete();
 	}
-	SCA_ActuatorList::iterator ita;
-	for (ita = m_registeredActuators.begin(); !(ita==m_registeredActuators.end()); ++ita)
-	{
-		(*ita)->UnlinkObject(this);
+	for (SCA_IActuator *actuator : m_registeredActuators) {
+		actuator->UnlinkObject(this);
 	}
-	for (ita = m_actuators.begin(); !(ita==m_actuators.end()); ++ita)
-	{
-		(*ita)->Delete();
+	for (SCA_IActuator *actuator : m_actuators) {
+		actuator->Delete();
 	}
 
-	SCA_ObjectList::iterator ito;
-	for (ito = m_registeredObjects.begin(); !(ito==m_registeredObjects.end()); ++ito)
-	{
-		(*ito)->UnlinkObject(this);
+	for (SCA_IObject *object : m_registeredObjects) {
+		object->UnlinkObject(this);
 	}
-
-	//T_InterpolatorList::iterator i;
-	//for (i = m_interpolators.begin(); !(i == m_interpolators.end()); ++i) {
-	//	delete *i;
-	//}
 }
 
-void SCA_IObject::AddSensor(SCA_ISensor* act)
+SCA_ControllerList& SCA_IObject::GetControllers()
+{
+	return m_controllers;
+}
+SCA_SensorList& SCA_IObject::GetSensors()
+{
+	return m_sensors;
+}
+SCA_ActuatorList& SCA_IObject::GetActuators()
+{
+	return m_actuators;
+}
+SG_QList& SCA_IObject::GetActiveActuators()
+{
+	return m_activeActuators;
+}
+
+SG_QList& SCA_IObject::GetActiveControllers()
+{
+	return m_activeControllers;
+}
+
+SG_QList& SCA_IObject::GetActiveBookmarkedControllers()
+{
+	return m_activeBookmarkedControllers;
+}
+
+void SCA_IObject::AddSensor(SCA_ISensor *act)
 {
 	act->AddRef();
 	m_sensors.push_back(act);
 }
 
+void SCA_IObject::ReserveSensor(int num)
+{
+	m_sensors.reserve(num);
+}
 
-
-void SCA_IObject::AddController(SCA_IController* act)
+void SCA_IObject::AddController(SCA_IController *act)
 {
 	act->AddRef();
 	m_controllers.push_back(act);
 }
 
+void SCA_IObject::ReserveController(int num)
+{
+	m_controllers.reserve(num);
+}
 
-
-void SCA_IObject::AddActuator(SCA_IActuator* act)
+void SCA_IObject::AddActuator(SCA_IActuator *act)
 {
 	act->AddRef();
 	m_actuators.push_back(act);
 }
 
-void SCA_IObject::RegisterActuator(SCA_IActuator* act)
+void SCA_IObject::ReserveActuator(int num)
 {
-	// don't increase ref count, it would create dead lock
+	m_actuators.reserve(num);
+}
+
+void SCA_IObject::RegisterActuator(SCA_IActuator *act)
+{
+	// Don't increase ref count, it would create dead lock.
 	m_registeredActuators.push_back(act);
 }
 
-void SCA_IObject::UnregisterActuator(SCA_IActuator* act)
+void SCA_IObject::UnregisterActuator(SCA_IActuator *act)
 {
-	SCA_ActuatorList::iterator ita;
-	for (ita = m_registeredActuators.begin(); ita != m_registeredActuators.end(); ++ita)
-	{
-		if ((*ita) == act) {
-			(*ita) = m_registeredActuators.back();
-			m_registeredActuators.pop_back();
-			break;
-		}
-	}
+	CM_ListRemoveIfFound(m_registeredActuators, act);
 }
 
-void SCA_IObject::RegisterObject(SCA_IObject* obj)
+void SCA_IObject::RegisterObject(SCA_IObject *obj)
 {
-	// one object may be registered multiple times via constraint target
-	// store multiple reference, this will serve as registration counter
+	/* One object may be registered multiple times via constraint target
+	 * store multiple reference, this will serve as registration counter. */
 	m_registeredObjects.push_back(obj);
 }
 
-void SCA_IObject::UnregisterObject(SCA_IObject* obj)
+void SCA_IObject::UnregisterObject(SCA_IObject *obj)
 {
-	SCA_ObjectList::iterator ito;
-	for (ito = m_registeredObjects.begin(); ito != m_registeredObjects.end(); ++ito)
-	{
-		if ((*ito) == obj) {
-			(*ito) = m_registeredObjects.back();
-			m_registeredObjects.pop_back();
-			break;
-		}
-	}
+	CM_ListRemoveIfFound(m_registeredObjects, obj);
+}
+
+bool SCA_IObject::UnlinkObject(SCA_IObject *clientobj)
+{
+	return false;
 }
 
 void SCA_IObject::ReParentLogic()
 {
-	SCA_ActuatorList& oldactuators  = GetActuators();
-	int act = 0;
-	SCA_ActuatorList::iterator ita;
-	for (ita = oldactuators.begin(); !(ita==oldactuators.end()); ++ita)
-	{
-		SCA_IActuator* newactuator = (SCA_IActuator*) (*ita)->GetReplica();
+	SCA_ActuatorList& oldactuators = GetActuators();
+	for (unsigned short i = 0, size = oldactuators.size(); i < size; ++i) {
+		SCA_IActuator *newactuator = static_cast<SCA_IActuator *>(oldactuators[i]->GetReplica());
 		newactuator->ReParent(this);
-		// actuators are initially not connected to any controller
+		// Actuators are initially not connected to any controller.
 		newactuator->SetActive(false);
 		newactuator->ClrLink();
-		oldactuators[act++] = newactuator;
+		oldactuators[i] = newactuator;
 	}
 
 	SCA_ControllerList& oldcontrollers = GetControllers();
-	int con = 0;
-	SCA_ControllerList::iterator itc;
-	for (itc = oldcontrollers.begin(); !(itc==oldcontrollers.end()); ++itc)
-	{
-		SCA_IController* newcontroller = (SCA_IController*)(*itc)->GetReplica();
+	for (unsigned short i = 0, size = oldcontrollers.size(); i < size; ++i) {
+		SCA_IController *newcontroller = static_cast<SCA_IController *>(oldcontrollers[i]->GetReplica());
 		newcontroller->ReParent(this);
 		newcontroller->SetActive(false);
-		oldcontrollers[con++]=newcontroller;
-
+		oldcontrollers[i] = newcontroller;
 	}
-	// convert sensors last so that actuators are already available for Actuator sensor
+	// Convert sensors last so that actuators are already available for Actuator sensor.
 	SCA_SensorList& oldsensors = GetSensors();
-	int sen = 0;
-	SCA_SensorList::iterator its;
-	for (its = oldsensors.begin(); !(its==oldsensors.end()); ++its)
-	{
-		SCA_ISensor* newsensor = (SCA_ISensor*)(*its)->GetReplica();
+	for (unsigned short i = 0, size = oldsensors.size(); i < size; ++i) {
+		SCA_ISensor *newsensor = static_cast<SCA_ISensor *>(oldsensors[i]->GetReplica());
 		newsensor->ReParent(this);
 		newsensor->SetActive(false);
 		// sensors are initially not connected to any controller
 		newsensor->ClrLink();
-		oldsensors[sen++] = newsensor;
+		oldsensors[i] = newsensor;
 	}
-
-	// a new object cannot be client of any actuator
-	m_registeredActuators.clear();
-	m_registeredObjects.clear();
 }
 
-
-
-SCA_ISensor* SCA_IObject::FindSensor(const std::string& sensorname)
+SCA_ISensor *SCA_IObject::FindSensor(const std::string& sensorname)
 {
-	SCA_ISensor* foundsensor = nullptr;
-
-	for (SCA_SensorList::iterator its = m_sensors.begin();!(its==m_sensors.end());++its)
-	{
-		if ((*its)->GetName() == sensorname)
-		{
-			foundsensor = (*its);
-			break;
+	for (SCA_ISensor *sensor : m_sensors) {
+		if (sensor->GetName() == sensorname) {
+			return sensor;
 		}
 	}
-	return foundsensor;
+	return nullptr;
 }
 
-
-
-SCA_IController* SCA_IObject::FindController(const std::string& controllername)
+SCA_IController *SCA_IObject::FindController(const std::string& controllername)
 {
-	SCA_IController* foundcontroller = nullptr;
-
-	for (SCA_ControllerList::iterator itc = m_controllers.begin();!(itc==m_controllers.end());++itc)
-	{
-		if ((*itc)->GetName() == controllername)
-		{
-			foundcontroller = (*itc);
-			break;
+	for (SCA_IController *controller : m_controllers) {
+		if (controller->GetName() == controllername) {
+			return controller;
 		}
 	}
-	return foundcontroller;
+	return nullptr;
 }
 
-
-
-SCA_IActuator* SCA_IObject::FindActuator(const std::string& actuatorname)
+SCA_IActuator *SCA_IObject::FindActuator(const std::string& actuatorname)
 {
-	SCA_IActuator* foundactuator = nullptr;
-
-	for (SCA_ActuatorList::iterator ita = m_actuators.begin();!(ita==m_actuators.end());++ita)
-	{
-		if ((*ita)->GetName() == actuatorname)
-		{
-			foundactuator = (*ita);
-			break;
+	for (SCA_IActuator *actuator : m_actuators) {
+		if (actuator->GetName() == actuatorname) {
+			return actuator;
 		}
 	}
-
-	return foundactuator;
+	return nullptr;
 }
 
-
-void SCA_IObject::Suspend()
+void SCA_IObject::SuspendLogic()
 {
-	if ((!m_ignore_activity_culling) 
-		&& (!m_suspended)) {
+	if (!m_suspended) {
 		m_suspended = true;
 		/* flag suspend for all sensors */
-		SCA_SensorList::iterator i = m_sensors.begin();
-		while (i != m_sensors.end()) {
-			(*i)->Suspend();
-			++i;
+		for (SCA_ISensor *sensor : m_sensors) {
+			sensor->Suspend();
 		}
 	}
 }
 
-
-
-void SCA_IObject::Resume(void)
+void SCA_IObject::ResumeLogic()
 {
 	if (m_suspended) {
 		m_suspended = false;
 		/* unflag suspend for all sensors */
-		SCA_SensorList::iterator i = m_sensors.begin();
-		while (i != m_sensors.end()) {
-			(*i)->Resume();
-			++i;
+		for (SCA_ISensor *sensor : m_sensors) {
+			sensor->Resume();
 		}
 	}
 }
 
+void SCA_IObject::SetInitState(unsigned int initState)
+{
+	m_initState = initState;
+}
+
+void SCA_IObject::ResetState()
+{
+	SetState(m_initState);
+}
+
 void SCA_IObject::SetState(unsigned int state)
 {
-	unsigned int tmpstate;
-	SCA_ControllerList::iterator contit;
+	/* We will update the state in two steps:
+	 * 1) set the new state bits that are 1
+	 * 2) clr the new state bits that are 0
+	 * This to ensure continuity if a sensor is attached to two states
+	 * that are switching state: no need to deactive and reactive the sensor
+	 */
 
-	// we will update the state in two steps:
-	// 1) set the new state bits that are 1
-	// 2) clr the new state bits that are 0
-	// This to ensure continuity if a sensor is attached to two states
-	// that are switching state: no need to deactive and reactive the sensor 
-	
-	tmpstate = m_state | state;
-	if (tmpstate != m_state)
-	{
-		// update the status of the controllers
-		for (contit = m_controllers.begin(); contit != m_controllers.end(); ++contit)
-		{
-			(*contit)->ApplyState(tmpstate);
+	const unsigned int tmpstate = m_state | state;
+	if (tmpstate != m_state) {
+		// Update the status of the controllers.
+		for (SCA_IController *controller : m_controllers) {
+			controller->ApplyState(tmpstate);
 		}
 	}
 	m_state = state;
-	if (m_state != tmpstate)
-	{
-		for (contit = m_controllers.begin(); contit != m_controllers.end(); ++contit)
-		{
-			(*contit)->ApplyState(m_state);
+	if (m_state != tmpstate) {
+		for (SCA_IController *controller : m_controllers) {
+			controller->ApplyState(m_state);
 		}
 	}
+}
+
+unsigned int SCA_IObject::GetState()
+{
+	return m_state;
+}
+
+SG_QList **SCA_IObject::GetFirstState()
+{
+	return &m_firstState;
+}
+
+void SCA_IObject::SetFirstState(SG_QList *firstState)
+{
+	m_firstState = firstState;
+}
+
+int SCA_IObject::GetGameObjectType() const
+{
+	return -1;
 }
 
 #ifdef WITH_PYTHON
@@ -317,7 +321,7 @@ void SCA_IObject::SetState(unsigned int state)
 PyTypeObject SCA_IObject::Type = {
 	PyVarObject_HEAD_INIT(nullptr, 0)
 	"SCA_IObject",
-	sizeof(PyObjectPlus_Proxy),
+	sizeof(EXP_PyObjectPlus_Proxy),
 	0,
 	py_base_dealloc,
 	0,
@@ -325,25 +329,23 @@ PyTypeObject SCA_IObject::Type = {
 	0,
 	0,
 	py_base_repr,
-	0,0,0,0,0,0,0,0,0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0,
 	Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
-	0,0,0,0,0,0,0,
+	0, 0, 0, 0, 0, 0, 0,
 	Methods,
 	0,
 	0,
-	&CValue::Type,
-	0,0,0,0,0,0,
+	&EXP_Value::Type,
+	0, 0, 0, 0, 0, 0,
 	py_base_new
 };
 
 PyMethodDef SCA_IObject::Methods[] = {
-	//{"setOrientation", (PyCFunction) SCA_IObject::sPySetOrientation, METH_VARARGS},
-	//{"getOrientation", (PyCFunction) SCA_IObject::sPyGetOrientation, METH_VARARGS},
-	{nullptr,nullptr} //Sentinel
+	{nullptr, nullptr} // Sentinel
 };
 
 PyAttributeDef SCA_IObject::Attributes[] = {
-	KX_PYATTRIBUTE_NULL	//Sentinel
+	EXP_PYATTRIBUTE_NULL // Sentinel
 };
 
 #endif // WITH_PYTHON

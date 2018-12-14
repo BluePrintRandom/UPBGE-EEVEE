@@ -34,11 +34,11 @@
 
 #include "SCA_IActuator.h"
 #include "SCA_IObject.h"
-#include "MT_Matrix3x3.h"
+#include "mathfu.h"
 #include "KX_GameObject.h"
 
 
-class KX_TrackToActuator : public SCA_IActuator
+class KX_TrackToActuator : public SCA_IActuator, public mt::SimdClassAllocator
 {
 	Py_Header
 	// Object reference. Actually, we use the object's 'life'
@@ -50,14 +50,15 @@ class KX_TrackToActuator : public SCA_IActuator
 	int	m_trackflag;
 	int m_upflag;
 	
-	MT_Matrix3x3 m_parentlocalmat;
+	mt::mat3 m_parentlocalmat;
 	KX_GameObject* m_parentobj;
 
-  public:
+public:
+
 	KX_TrackToActuator(SCA_IObject* gameobj, SCA_IObject *ob, int time,
 	                   bool threedee,int trackflag,int upflag);
 	virtual ~KX_TrackToActuator();
-	virtual CValue* GetReplica() {
+	virtual EXP_Value* GetReplica() {
 		KX_TrackToActuator* replica = new KX_TrackToActuator(*this);
 		replica->ProcessReplica();
 		return replica;
@@ -88,8 +89,8 @@ class KX_TrackToActuator : public SCA_IActuator
 	/* Python part */
 
 	/* These are used to get and set m_ob */
-	static PyObject *pyattr_get_object(PyObjectPlus *self, const struct KX_PYATTRIBUTE_DEF *attrdef);
-	static int       pyattr_set_object(PyObjectPlus *self, const struct KX_PYATTRIBUTE_DEF *attrdef, PyObject *value);
+	static PyObject *pyattr_get_object(EXP_PyObjectPlus *self, const struct EXP_PYATTRIBUTE_DEF *attrdef);
+	static int       pyattr_set_object(EXP_PyObjectPlus *self, const struct EXP_PYATTRIBUTE_DEF *attrdef, PyObject *value);
 	
 #endif  /* WITH_PYTHON */
 

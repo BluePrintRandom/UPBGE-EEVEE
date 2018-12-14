@@ -53,16 +53,13 @@ extern "C" {
 #  include "wm_window.h"
 }
 
-KX_BlenderCanvas::KX_BlenderCanvas(RAS_Rasterizer *rasty, wmWindowManager *wm, wmWindow *win, rcti *viewport, struct ARegion *ar)
+KX_BlenderCanvas::KX_BlenderCanvas(RAS_Rasterizer *rasty, wmWindowManager *wm, wmWindow *win, RAS_Rect &rect)
 	:RAS_ICanvas(rasty),
 	m_wm(wm),
 	m_win(win),
-	m_ar(ar)
+	m_area_rect(rect) // initialize area so that it's available for game logic on frame 1 (ImageViewport)
 {
-	m_frame = 1;
-
-	m_viewportArea = RAS_Rect(viewport->xmin, viewport->ymin, viewport->xmax, viewport->ymax);
-	m_windowArea = RAS_Rect(ar->winrct.xmin, ar->winrct.ymin, ar->winrct.xmax, ar->winrct.ymax);
+	m_rasterizer->GetViewport(m_viewport);
 }
 
 KX_BlenderCanvas::~KX_BlenderCanvas()
@@ -78,14 +75,10 @@ void KX_BlenderCanvas::SwapBuffers()
 	wm_window_swap_buffers(m_win);
 }
 
-void KX_BlenderCanvas::SetSwapInterval(int interval)
+void KX_BlenderCanvas::SetSwapControl(SwapControl control)
 {
-	wm_window_set_swap_interval(m_win, interval);
-}
-
-bool KX_BlenderCanvas::GetSwapInterval(int &intervalOut)
-{
-	return wm_window_get_swap_interval(m_win, &intervalOut);
+	wm_window_set_swap_interval(m_win, swapInterval[control]);
+	RAS_ICanvas::SetSwapControl(control);
 }
 
 void KX_BlenderCanvas::GetDisplayDimensions(int &width, int &height)
@@ -134,17 +127,78 @@ void KX_BlenderCanvas::EndFrame()
 {
 }
 
+int KX_BlenderCanvas::GetWidth() const
+{
+	return m_area_rect.GetWidth();
+}
+
+int KX_BlenderCanvas::GetHeight() const
+{
+	return m_area_rect.GetHeight();
+}
+
+int KX_BlenderCanvas::GetMaxX() const
+{
+	return m_area_rect.GetMaxX();
+}
+
+int KX_BlenderCanvas::GetMaxY() const
+{
+	return m_area_rect.GetMaxY();
+}
+
 void KX_BlenderCanvas::ConvertMousePosition(int x, int y, int &r_x, int &r_y, bool screen)
 {
 	if (screen) {
-		int _x, _y;
-		((GHOST_IWindow *)m_win->ghostwin)->screenToClient(x, y, _x, _y);
-		x = _x;
-		y = _y;
+		wm_cursor_position_from_ghost(m_win, &x, &y);
 	}
 
-	r_x = x - m_viewportArea.GetLeft() - 1;
-	r_y = -y + m_viewportArea.GetTop() - 1;
+	r_x = x - m_area_rect.GetLeft();
+	r_y = -y + m_area_rect.GetTop();
+}
+
+float KX_BlenderCanvas::GetMouseNormalizedX(int x)
+{
+	return float(x) / GetMaxX();
+}
+
+float KX_BlenderCanvas::GetMouseNormalizedY(int y)
+{
+	return float(y) / GetMaxY();
+}
+
+RAS_Rect &KX_BlenderCanvas::GetWindowArea()
+{
+	return m_area_rect;
+}
+
+void KX_BlenderCanvas::SetViewPort(int x, int y, int width, int height)
+{
+	int minx = m_area_rect.GetLeft();
+	int miny = m_area_rect.GetBottom();
+
+	m_area_rect.SetLeft(minx + x);
+	m_area_rect.SetBottom(miny + y);
+	m_area_rect.SetRight(minx + x + width - 1);
+	m_area_rect.SetTop(miny + y + height - 1);
+
+	m_viewport[0] = minx + x;
+	m_viewport[1] = miny + y;
+	m_viewport[2] = width;
+	m_viewport[3] = height;
+}
+
+void KX_BlenderCanvas::UpdateViewPort(int x, int y, int width, int height)
+{
+	m_viewport[0] = x;
+	m_viewport[1] = y;
+	m_viewport[2] = width;
+	m_viewport[3] = height;
+}
+
+const int *KX_BlenderCanvas::GetViewPort()
+{
+	return m_viewport;
 }
 
 void KX_BlenderCanvas::SetMouseState(RAS_MouseState mousestate)
@@ -173,24 +227,23 @@ void KX_BlenderCanvas::SetMouseState(RAS_MouseState mousestate)
 	}
 }
 
-//	(0,0) is top left, (width,height) is bottom right
 void KX_BlenderCanvas::SetMousePosition(int x, int y)
 {
-	int winX = m_viewportArea.GetLeft();
-	int winY = m_viewportArea.GetBottom();
-	int winH = m_viewportArea.GetHeight();
+	int winX = m_area_rect.GetLeft();
+	int winY = m_area_rect.GetBottom();
+	int winMaxY = m_area_rect.GetMaxY();
 
-	WM_cursor_warp(m_win, winX + x + 1, winY + (winH - y - 1));
+	WM_cursor_warp(m_win, winX + x, winY + (winMaxY - y));
 }
 
 void KX_BlenderCanvas::MakeScreenShot(const std::string& filename)
 {
 	bScreen *screen = m_win->screen;
 
-	int x = m_viewportArea.GetLeft();
-	int y = m_viewportArea.GetBottom();
-	int width = m_viewportArea.GetWidth();
-	int height = m_viewportArea.GetHeight();
+	int x = m_area_rect.GetLeft();
+	int y = m_area_rect.GetBottom();
+	int width = m_area_rect.GetWidth();
+	int height = m_area_rect.GetHeight();
 
 	/* initialize image file format data */
 	Scene *scene = (screen) ? screen->scene : nullptr;

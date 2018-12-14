@@ -25,7 +25,7 @@
  */
 
 #include "KX_Globals.h"
-#include "KX_KetsjiEngine.h"
+#include "KX_Scene.h"
 #include "RAS_Rasterizer.h"
 
 extern "C" {
@@ -73,6 +73,11 @@ KX_Scene *KX_GetActiveScene()
 	return g_scene;
 }
 
+PHY_IPhysicsEnvironment *KX_GetPhysicsEnvironment()
+{
+	return g_scene->GetPhysicsEnvironment();
+}
+
 const std::string& KX_GetMainPath()
 {
 	return g_mainPath;
@@ -83,13 +88,7 @@ const std::string& KX_GetOrigPath()
 	return g_origPath;
 }
 
-void KX_RasterizerDrawDebugLine(const MT_Vector3& from,const MT_Vector3& to,const MT_Vector4& color)
+void KX_RasterizerDrawDebugLine(const mt::vec3& from, const mt::vec3& to, const mt::vec4& color)
 {
-	g_engine->GetRasterizer()->GetDebugDraw(g_scene).DrawLine(from, to, color);
-}
-
-void KX_RasterizerDrawDebugCircle(const MT_Vector3& center, const MT_Scalar radius, const MT_Vector4& color,
-                                  const MT_Vector3& normal, int nsector)
-{
-	g_engine->GetRasterizer()->GetDebugDraw(g_scene).DrawCircle(center, radius, color, normal, nsector);
+	g_scene->GetDebugDraw().DrawLine(from, to, color);
 }

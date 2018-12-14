@@ -36,81 +36,68 @@
 #  pragma warning (disable:4786)  /* get rid of stupid stl-visual compiler debug warning */
 #endif
 
-#include <stdlib.h>
-#include <map>
-#include "MT_Vector3.h"
-
 #include "RAS_BoundingBox.h"
-#include "RAS_IDisplayArray.h" // For RAS_IDisplayArrayList.
+#include "RAS_DisplayArray.h" // For RAS_DisplayArrayList.
 #include "RAS_DisplayArrayBucket.h" // For RAS_DisplayArrayBucketList.
 
-struct DerivedMesh;
-class RAS_MeshObject;
-class RAS_IPolyMaterial;
-class RAS_MeshMaterial;
+#include <map>
+
+class RAS_Mesh;
 class SCA_IObject;
 
 class RAS_Deformer
 {
 public:
-	RAS_Deformer(RAS_MeshObject *mesh)
-		:m_mesh(mesh),
-		m_bDynamic(false),
-		m_boundingBox(nullptr)
-	{
-	}
-
+	RAS_Deformer(RAS_Mesh *mesh);
 	virtual ~RAS_Deformer();
 
-	virtual void Relink(std::map<SCA_IObject *, SCA_IObject *>& map) = 0;
-	virtual bool Apply(RAS_MeshMaterial *meshmat, RAS_IDisplayArray *array) = 0;
+	void InitializeDisplayArrays();
+
+	virtual void Apply(RAS_DisplayArray *array) = 0;
 	virtual bool Update(void)=0;
-	virtual bool UpdateBuckets(void)=0;
-	virtual RAS_Deformer *GetReplica()=0;
-	virtual void ProcessReplica()
-	{
-		m_boundingBox = m_boundingBox->GetReplica();
-	}
-	virtual bool SkipVertexTransform()
-	{
-		return false;
-	}
-	virtual bool UseVertexArray()
-	{
-		return true;
-	}
+	virtual void UpdateBuckets(void)=0;
+
 	// true when deformer produces varying vertex (shape or armature)
 	bool IsDynamic()
 	{
 		return m_bDynamic;
 	}
-	virtual struct DerivedMesh* GetFinalMesh()
+
+	virtual bool SkipVertexTransform()
 	{
-		return nullptr;
+		return false;
 	}
-	virtual struct DerivedMesh* GetPhysicsMesh()
-	{
-		return nullptr;
-	}
-	virtual class RAS_MeshObject* GetRasMesh()
-	{
-		return nullptr;
-	}
-	virtual float (* GetTransVerts(int *tot))[3]	{	*tot= 0; return nullptr; }
 
 	RAS_BoundingBox *GetBoundingBox() const
 	{
 		return m_boundingBox;
 	}
 
-	void AddDisplayArray(RAS_IDisplayArray *array, RAS_DisplayArrayBucket *arrayBucket);
+	RAS_Mesh *GetMesh() const;
+
+	RAS_DisplayArray *GetDisplayArray(unsigned short index) const;
+	RAS_DisplayArrayBucket *GetDisplayArrayBucket(unsigned short index) const;
 
 protected:
-	RAS_MeshObject *m_mesh;
-	bool m_bDynamic;
+	/// Struct wrapping display arrays owned/used by the deformer.
+	struct DisplayArraySlot
+	{
+		/// The unique display array owned by the deformer.
+		RAS_DisplayArray *m_displayArray;
+		/// The original display array used by the deformer to duplicate data.
+		RAS_DisplayArray *m_origDisplayArray;
+		/// The mesh material of the owning the original display array.
+		RAS_MeshMaterial *m_meshMaterial;
+		/// The unique display array bucket using the display array of this deformer.
+		RAS_DisplayArrayBucket *m_displayArrayBucket;
+		/// Update client of the orignal display array.
+		CM_UpdateClient<RAS_DisplayArray> m_arrayUpdateClient;
+	};
 
-	RAS_IDisplayArrayList m_displayArrayList;
-	RAS_DisplayArrayBucketList m_displayArrayBucketList;
+	std::vector<DisplayArraySlot> m_slots;
+
+	RAS_Mesh *m_mesh;
+	bool m_bDynamic;
 
 	/// Deformer bounding box.
 	RAS_BoundingBox *m_boundingBox;

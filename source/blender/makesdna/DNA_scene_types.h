@@ -892,9 +892,11 @@ typedef struct GameData {
 #define RAS_STORE_VBO		3
 
 /* GameData.vsync */
-#define VSYNC_ON	0
-#define VSYNC_OFF	1
-#define VSYNC_ADAPTIVE	2
+enum {
+	VSYNC_ON = 0,
+	VSYNC_OFF,
+	VSYNC_ADAPTIVE
+};
 
 /* GameData.flag */
 #define GAME_RESTRICT_ANIM_UPDATES			(1 << 0)

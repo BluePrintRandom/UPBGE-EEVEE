@@ -39,10 +39,8 @@
 #include "RAS_ICanvas.h"
 #include "RAS_Rect.h"
 
-struct ARegion;
 struct wmWindow;
 struct wmWindowManager;
-struct rcti;
 
 /**
  * 2D Blender device context abstraction.
@@ -57,21 +55,15 @@ private:
 	wmWindowManager *m_wm;
 	wmWindow *m_win;
 	RAS_Rect m_area_rect;
-	ARegion *m_ar;
 
 public:
-	/* Construct a new canvas.
-	 *
-	 * \param area The Blender ARegion to run the game within.
-	 */
-	KX_BlenderCanvas(RAS_Rasterizer *rasty, wmWindowManager *wm, wmWindow *win, rcti *viewport, ARegion *ar);
+	KX_BlenderCanvas(RAS_Rasterizer *rasty, wmWindowManager *wm, wmWindow *win, RAS_Rect &rect);
 	virtual ~KX_BlenderCanvas();
 
 	virtual void Init();
 
 	virtual void SwapBuffers();
-	virtual void SetSwapInterval(int interval);
-	virtual bool GetSwapInterval(int &intervalOut);
+	virtual void SetSwapControl(SwapControl control);
 
 	virtual void GetDisplayDimensions(int &width, int &height);
 	virtual void ResizeWindow(int width, int height);
@@ -83,7 +75,21 @@ public:
 	virtual void BeginFrame();
 	virtual void EndFrame();
 
+	virtual int GetWidth() const;
+	virtual int GetHeight() const;
+	virtual int GetMaxX() const;
+	virtual int GetMaxY() const;
+
 	virtual void ConvertMousePosition(int x, int y, int &r_x, int &r_y, bool screen);
+
+	virtual float GetMouseNormalizedX(int x);
+	virtual float GetMouseNormalizedY(int y);
+
+	virtual RAS_Rect &GetWindowArea();
+
+	virtual void SetViewPort(int x, int y, int width, int height);
+	virtual void UpdateViewPort(int x, int y, int width, int height);
+	virtual const int *GetViewPort();
 
 	virtual void SetMouseState(RAS_MouseState mousestate);
 	virtual void SetMousePosition(int x, int y);

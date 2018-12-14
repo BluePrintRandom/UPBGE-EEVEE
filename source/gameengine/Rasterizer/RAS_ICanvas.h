@@ -52,6 +52,14 @@ public:
 		MOUSE_NORMAL
 	};
 
+	enum SwapControl
+	{
+		VSYNC_OFF = 0,
+		VSYNC_ON,
+		VSYNC_ADAPTIVE,
+		SWAP_CONTROL_MAX
+	};
+
 	RAS_ICanvas(RAS_Rasterizer *rasty);
 	virtual ~RAS_ICanvas();
 
@@ -77,8 +85,8 @@ public:
 
 	/// probably needs some arguments for PS2 in future
 	virtual void SwapBuffers() = 0;
-	virtual void SetSwapInterval(int interval) = 0;
-	virtual bool GetSwapInterval(int& intervalOut) = 0;
+	virtual void SetSwapControl(SwapControl control);
+	SwapControl GetSwapControl() const;
 
 	void SetSamples(int samples);
 	int GetSamples() const;
@@ -86,8 +94,10 @@ public:
 	void SetHdrType(RAS_Rasterizer::HdrType type);
 	RAS_Rasterizer::HdrType GetHdrType() const;
 
-	int GetWidth() const;
-	int GetHeight() const;
+	virtual int GetWidth() const = 0;
+	virtual int GetHeight() const = 0;
+	virtual int GetMaxX() const = 0;
+	virtual int GetMaxY() const = 0;
 
 	/** Convert mouse coordinates from screen or client window to render area coordinates.
 	 * \param x The input X coordinate.
@@ -98,15 +108,29 @@ public:
 	 */
 	virtual void ConvertMousePosition(int x, int y, int &r_x, int &r_y, bool screen) = 0;
 
-	float GetMouseNormalizedX(int x);
-	float GetMouseNormalizedY(int y);
+	virtual float GetMouseNormalizedX(int x) = 0;
+	virtual float GetMouseNormalizedY(int y) = 0;
 
 	/**
 	 * Used to get canvas area within blender.
 	 */
-	const RAS_Rect& GetWindowArea() const;
+	virtual RAS_Rect &GetWindowArea() = 0;
 
-	const RAS_Rect& GetViewportArea() const;
+	/**
+	 * Set the visible view-port
+	 */
+	virtual void SetViewPort(int x, int y, int width, int height) = 0;
+
+	/**
+	 * Update the Canvas' viewport (used when the viewport changes without using SetViewPort()
+	 * eg: Shadow buffers and FBOs
+	 */
+	virtual void UpdateViewPort(int x, int y, int width, int height) = 0;
+
+	/**
+	 * Get the visible viewport
+	 */
+	virtual const int *GetViewPort() = 0;
 
 	virtual void SetMouseState(RAS_MouseState mousestate) = 0;
 	virtual void SetMousePosition(int x, int y) = 0;
@@ -130,9 +154,14 @@ public:
 	virtual void SetFullScreen(bool enable) = 0;
 	virtual bool GetFullScreen() = 0;
 
-protected:
+	RAS_Rasterizer *GetRasterizer()
+	{
+		return m_rasterizer;
+	}
 
-	RAS_Rasterizer *m_rasterizer;
+protected:
+	/// Swap interval value of each swap control mode.
+	static const int swapInterval[SWAP_CONTROL_MAX];
 
 	struct Screenshot
 	{
@@ -149,14 +178,13 @@ protected:
 	int m_samples;
 	RAS_Rasterizer::HdrType m_hdrType;
 
+	SwapControl m_swapControl;
 	RAS_MouseState m_mousestate;
 	/// frame number for screenshots.
 	int m_frame;
 	TaskScheduler *m_taskscheduler;
 	TaskPool *m_taskpool;
-
-	RAS_Rect m_windowArea;
-	RAS_Rect m_viewportArea;
+	RAS_Rasterizer *m_rasterizer;
 
 	/** Delay the screenshot to the frame end to use a valid buffer and avoid copy from an invalid buffer
 	 * at the frame begin after the buffer swap. The screenshot are proceeded in \see FlushScreenshots.

@@ -19,7 +19,6 @@ set(INC
 	../../blender/blenkernel
 	../../blender/blenlib
 	../../blender/blenloader
-	../../blender/draw/engines/eevee/
 	../../blender/editors/include
 	../../blender/gpu
 	../../blender/imbuf
@@ -33,7 +32,8 @@ set(INC
 )
 
 set(INC_SYS
-	../../../intern/moto/include
+	../../../intern/debugbreak
+	../../../intern/mathfu
 	${PTHREADS_INCLUDE_DIRS}
 	${BOOST_INCLUDE_DIR}
 )
@@ -48,7 +48,7 @@ set(SRC
 add_definitions(${GL_DEFINITIONS})
 
 if(WITH_AUDASPACE)
-	add_definitions(-DWITH_AUDASPACE)
+	add_definitions(${AUDASPACE_DEFINITIONS})
 
 	list(APPEND INC_SYS
 		${AUDASPACE_C_INCLUDE_DIRS}

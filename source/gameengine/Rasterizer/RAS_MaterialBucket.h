@@ -33,10 +33,8 @@
 #define __RAS_MATERIAL_BUCKET_H__
 
 #include "RAS_DisplayArrayBucket.h"
-#include "MT_Transform.h"
 
-class RAS_IPolyMaterial;
-class RAS_MaterialShader;
+class RAS_IMaterial;
 class RAS_Rasterizer;
 
 /* Contains a list of display arrays with the same material,
@@ -46,32 +44,42 @@ class RAS_Rasterizer;
 class RAS_MaterialBucket
 {
 public:
-	RAS_MaterialBucket(RAS_IPolyMaterial *mat);
+	RAS_MaterialBucket(RAS_IMaterial *mat);
 	virtual ~RAS_MaterialBucket();
 
 	// Material Properties
-	RAS_IPolyMaterial *GetPolyMaterial() const;
-	RAS_MaterialShader *GetShader() const;
+	RAS_IMaterial *GetMaterial() const;
 	bool IsAlpha() const;
 	bool IsZSort() const;
 	bool IsWire() const;
 	bool UseInstancing() const;
 
-	/// Set the shader after its conversion or when changing to custom shader.
-	void UpdateShader();
+	// Rendering
+	void ActivateMaterial(RAS_Rasterizer *rasty);
+	void DesactivateMaterial(RAS_Rasterizer *rasty);
+
+	// Render nodes.
+	void GenerateTree(RAS_ManagerDownwardNode& downwardRoot, RAS_ManagerUpwardNode& upwardRoot,
+			RAS_UpwardTreeLeafs& upwardLeafs, RAS_Rasterizer::DrawType drawingMode, bool sort);
+	void BindNode(const RAS_MaterialNodeTuple& tuple);
+	void UnbindNode(const RAS_MaterialNodeTuple& tuple);
 
 	void RemoveActiveMeshSlots();
 
 	void AddDisplayArrayBucket(RAS_DisplayArrayBucket *bucket);
 	void RemoveDisplayArrayBucket(RAS_DisplayArrayBucket *bucket);
 
+	RAS_DisplayArrayBucketList& GetDisplayArrayBucketList();
+
 	void MoveDisplayArrayBucket(RAS_MeshMaterial *meshmat, RAS_MaterialBucket *bucket);
 
 private:
-
-	RAS_IPolyMaterial *m_material;
-	RAS_MaterialShader *m_shader;
+	RAS_IMaterial *m_material;
 	RAS_DisplayArrayBucketList m_displayArrayBucketList;
+
+	RAS_MaterialNodeData m_nodeData;
+	RAS_MaterialDownwardNode m_downwardNode;
+	RAS_MaterialUpwardNode m_upwardNode;
 };
 
 #endif  // __RAS_MATERIAL_BUCKET_H__

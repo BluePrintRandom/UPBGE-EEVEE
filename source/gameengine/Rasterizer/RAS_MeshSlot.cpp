@@ -31,21 +31,10 @@
 
 #include "RAS_MeshSlot.h"
 #include "RAS_MeshUser.h"
-#include "RAS_MaterialShader.h"
-#include "RAS_TexVert.h"
-#include "RAS_MeshObject.h"
-#include "GPU_material.h"
-#include "GPU_shader.h"
-#include "GPU_texture.h"
-#include "DNA_scene_types.h"
-
-#include "KX_Globals.h"
-#include "KX_Scene.h"
-#include "KX_Camera.h"
-
-extern "C" {
-#  include "../gpu/intern/gpu_codegen.h"
-}
+#include "RAS_IMaterial.h"
+#include "RAS_DisplayArray.h"
+#include "RAS_DisplayArrayStorage.h"
+#include "RAS_Mesh.h"
 
 #ifdef _MSC_VER
 #  pragma warning (disable:4786)
@@ -55,12 +44,14 @@ extern "C" {
 #  include <windows.h>
 #endif // WIN32
 
+static RAS_DummyNodeData dummyNodeData;
+
 // mesh slot
-RAS_MeshSlot::RAS_MeshSlot(RAS_MeshObject *mesh, RAS_MeshUser *meshUser, RAS_DisplayArrayBucket *arrayBucket)
-	:m_displayArrayBucket(arrayBucket),
-	m_mesh(mesh),
-	m_pDerivedMesh(nullptr),
-	m_meshUser(meshUser)
+RAS_MeshSlot::RAS_MeshSlot(RAS_MeshUser *meshUser, RAS_DisplayArrayBucket *arrayBucket)
+	:m_node(this, &dummyNodeData, &RAS_MeshSlot::RunNode, nullptr),
+	m_displayArrayBucket(arrayBucket),
+	m_meshUser(meshUser),
+	m_batchPartIndex(-1)
 {
 }
 
@@ -68,7 +59,58 @@ RAS_MeshSlot::~RAS_MeshSlot()
 {
 }
 
+RAS_MeshSlot::RAS_MeshSlot(const RAS_MeshSlot& other)
+	:m_node(this, &dummyNodeData, &RAS_MeshSlot::RunNode, nullptr),
+	m_displayArrayBucket(other.m_displayArrayBucket),
+	m_meshUser(other.m_meshUser),
+	m_batchPartIndex(other.m_batchPartIndex)
+{
+}
+
 void RAS_MeshSlot::SetDisplayArrayBucket(RAS_DisplayArrayBucket *arrayBucket)
 {
 	m_displayArrayBucket = arrayBucket;
+}
+
+void RAS_MeshSlot::GenerateTree(RAS_DisplayArrayUpwardNode& root, RAS_UpwardTreeLeafs& leafs)
+{
+	m_node.SetParent(&root);
+	leafs.push_back(&m_node);
+}
+
+void RAS_MeshSlot::RunNode(const RAS_MeshSlotNodeTuple& tuple)
+{
+	RAS_ManagerNodeData *managerData = tuple.m_managerData;
+	RAS_MaterialNodeData *materialData = tuple.m_materialData;
+	RAS_DisplayArrayNodeData *displayArrayData = tuple.m_displayArrayData;
+	RAS_Rasterizer *rasty = managerData->m_rasty;
+	rasty->SetClientObject(m_meshUser->GetClientObject());
+	rasty->SetFrontFace(m_meshUser->GetFrontFace());
+
+	RAS_DisplayArrayStorage *storage = displayArrayData->m_arrayStorage;
+
+	if (!managerData->m_shaderOverride) {
+		materialData->m_material->ActivateMeshUser(m_meshUser, rasty, managerData->m_trans);
+
+		if (materialData->m_zsort && storage) {
+			displayArrayData->m_array->SortPolygons(
+					managerData->m_trans * mt::mat4::ToAffineTransform(m_meshUser->GetMatrix()), storage->GetIndexMap());
+			storage->FlushIndexMap();
+		}
+	}
+
+	rasty->PushMatrix();
+
+	if (materialData->m_text) {
+		rasty->IndexPrimitivesText(this);
+	}
+	else {
+		if (displayArrayData->m_applyMatrix) {
+			float mat[16];
+			rasty->GetTransform(m_meshUser->GetMatrix(), materialData->m_drawingMode, mat);
+			rasty->MultMatrix(mat);
+		}
+		storage->IndexPrimitives();
+	}
+	rasty->PopMatrix();
 }

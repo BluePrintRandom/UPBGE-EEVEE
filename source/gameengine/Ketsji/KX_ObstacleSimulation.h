@@ -27,8 +27,7 @@
 #define __KX_OBSTACLESIMULATION_H__
 
 #include <vector>
-#include "MT_Vector2.h"
-#include "MT_Vector3.h"
+#include "mathfu.h"
 
 class KX_GameObject;
 class KX_NavMeshObject;
@@ -46,22 +45,21 @@ enum KX_OBSTACLE_SHAPE
 };
 
 #define VEL_HIST_SIZE 6
-struct KX_Obstacle
+struct KX_Obstacle : mt::SimdClassAllocator
 {
 	KX_OBSTACLE_TYPE m_type;
 	KX_OBSTACLE_SHAPE m_shape;
-	MT_Vector3 m_pos;
-	MT_Vector3 m_pos2;
-	MT_Scalar m_rad;
+	mt::vec3 m_pos;
+	mt::vec3 m_pos2;
+	float m_rad;
 	
-	float vel[2];
-	float pvel[2];
-	float dvel[2];
-	float nvel[2];
-	float hvel[VEL_HIST_SIZE*2];
+	mt::vec2 vel;
+	mt::vec2 pvel;
+	mt::vec2 dvel;
+	mt::vec2 nvel;
+	mt::vec2 hvel[VEL_HIST_SIZE];
 	int hhead;
 
-	
 	KX_GameObject* m_gameObj;
 };
 typedef std::vector<KX_Obstacle*> KX_Obstacles;
@@ -71,12 +69,12 @@ class KX_ObstacleSimulation
 protected:
 	KX_Obstacles m_obstacles;
 
-	MT_Scalar m_levelHeight;
+	float m_levelHeight;
 	bool m_enableVisualization;
 
 	KX_Obstacle* CreateObstacle(KX_GameObject* gameobj);
 public:
-	KX_ObstacleSimulation(MT_Scalar levelHeight, bool enableVisualization);
+	KX_ObstacleSimulation(float levelHeight, bool enableVisualization);
 	virtual ~KX_ObstacleSimulation();
 
 	void DrawObstacles();
@@ -88,7 +86,7 @@ public:
 	KX_Obstacle* GetObstacle(KX_GameObject* gameobj);
 	void UpdateObstacles();
 	virtual void AdjustObstacleVelocity(KX_Obstacle* activeObst, KX_NavMeshObject* activeNavMeshObj, 
-	                                    MT_Vector3& velocity, MT_Scalar maxDeltaSpeed,MT_Scalar maxDeltaAngle);
+	                                    mt::vec3& velocity, float maxDeltaSpeed,float maxDeltaAngle);
 
 };
 class KX_ObstacleSimulationTOI: public KX_ObstacleSimulation
@@ -105,9 +103,9 @@ protected:
 	virtual void sampleRVO(KX_Obstacle* activeObst, KX_NavMeshObject* activeNavMeshObj, 
 							const float maxDeltaAngle) = 0;
 public:
-	KX_ObstacleSimulationTOI(MT_Scalar levelHeight, bool enableVisualization);
+	KX_ObstacleSimulationTOI(float levelHeight, bool enableVisualization);
 	virtual void AdjustObstacleVelocity(KX_Obstacle* activeObst, KX_NavMeshObject* activeNavMeshObj, 
-		MT_Vector3& velocity, MT_Scalar maxDeltaSpeed,MT_Scalar maxDeltaAngle);
+		mt::vec3& velocity, float maxDeltaSpeed,float maxDeltaAngle);
 };
 
 class KX_ObstacleSimulationTOI_rays: public KX_ObstacleSimulationTOI
@@ -116,7 +114,7 @@ protected:
 	virtual void sampleRVO(KX_Obstacle* activeObst, KX_NavMeshObject* activeNavMeshObj, 
 							const float maxDeltaAngle);
 public:
-	KX_ObstacleSimulationTOI_rays(MT_Scalar levelHeight, bool enableVisualization);
+	KX_ObstacleSimulationTOI_rays(float levelHeight, bool enableVisualization);
 };
 
 class KX_ObstacleSimulationTOI_cells: public KX_ObstacleSimulationTOI
@@ -128,7 +126,7 @@ protected:
 	virtual void sampleRVO(KX_Obstacle* activeObst, KX_NavMeshObject* activeNavMeshObj, 
 							const float maxDeltaAngle);
 public:
-	KX_ObstacleSimulationTOI_cells(MT_Scalar levelHeight, bool enableVisualization);
+	KX_ObstacleSimulationTOI_cells(float levelHeight, bool enableVisualization);
 };
 
 #endif

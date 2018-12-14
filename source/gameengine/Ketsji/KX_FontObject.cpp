@@ -53,15 +53,11 @@
 
 extern "C" {
 #include "BLF_api.h"
-#include "depsgraph/DEG_depsgraph.h"
-#include "MEM_guardedalloc.h"
 }
 
 #include "CM_Message.h"
 
 #define BGE_FONT_RES 100
-
-#define MAX_BGE_TEXT_LEN 1024 //eevee
 
 /* proptotype */
 int GetFontId(VFont *font);
@@ -88,38 +84,33 @@ static std::vector<std::string> split_string(std::string str)
 KX_FontObject::KX_FontObject(void *sgReplicationInfo,
                              SG_Callbacks callbacks,
                              RAS_Rasterizer *rasterizer,
-							 RAS_BoundingBoxManager *boundingBoxManager,
-                             Object *ob,
-                             bool do_color_management)
+                             RAS_BoundingBoxManager *boundingBoxManager,
+                             Object *ob)
 	:KX_GameObject(sgReplicationInfo, callbacks),
 	m_object(ob),
 	m_dpi(72),
 	m_resolution(1.0f),
-	m_rasterizer(rasterizer),
-	m_do_color_management(do_color_management)
+	m_rasterizer(rasterizer)
 {
 	Curve *text = static_cast<Curve *> (ob->data);
 	m_fsize = text->fsize;
 	m_line_spacing = text->linedist;
-	m_offset = MT_Vector3(text->xof, text->yof, 0.0f);
+	m_offset = mt::vec3(text->xof, text->yof, 0.0f);
 
 	m_fontid = GetFontId(text->vfont);
 
 	m_boundingBox = new RAS_BoundingBox(boundingBoxManager);
 
 	SetText(text->str);
-
-	m_backupText = std::string(text->str); //eevee
 }
 
 KX_FontObject::~KX_FontObject()
 {
 	//remove font from the scene list
 	//it's handled in KX_Scene::NewRemoveObject
-	UpdateCurveText(m_backupText); //eevee
 }
 
-CValue *KX_FontObject::GetReplica()
+EXP_Value *KX_FontObject::GetReplica()
 {
 	KX_FontObject *replica = new KX_FontObject(*this);
 	replica->ProcessReplica();
@@ -135,32 +126,26 @@ void KX_FontObject::ProcessReplica()
 
 void KX_FontObject::AddMeshUser()
 {
-	m_meshUser = new RAS_TextUser(m_pClient_info, m_boundingBox);
-
-	NodeGetWorldTransform().getValue(m_meshUser->GetMatrix());
+	m_meshUser = new RAS_TextUser(&m_clientInfo, m_boundingBox);
 
 	RAS_BucketManager *bucketManager = GetScene()->GetBucketManager();
 	RAS_DisplayArrayBucket *arrayBucket = bucketManager->GetTextDisplayArrayBucket();
 
-	RAS_MeshSlot *ms = new RAS_MeshSlot(nullptr, m_meshUser, arrayBucket);
-	m_meshUser->AddMeshSlot(ms);
+	m_meshUser->SetMatrix(mt::mat4::FromAffineTransform(NodeGetWorldTransform()));
+	m_meshUser->SetFrontFace(!IsNegativeScaling());
+
+	m_meshUser->NewMeshSlot(arrayBucket);
 }
 
 void KX_FontObject::UpdateBuckets()
 {
-	// Update datas and add mesh slot to be rendered only if the object is not culled.
-	if (m_pSGNode->IsDirty(SG_Node::DIRTY_RENDER)) {
-		NodeGetWorldTransform().getValue(m_meshUser->GetMatrix());
-		m_pSGNode->ClearDirty(SG_Node::DIRTY_RENDER);
-	}
+	RAS_TextUser *textUser = static_cast<RAS_TextUser *>(m_meshUser);
 
-	// Font Objects don't use the glsl shader, this color management code is copied from gpu_shader_material.glsl
-	float color[4];
-	if (m_do_color_management) {
-		linearrgb_to_srgb_v4(color, m_objectColor.getValue());
-	}
-	else {
-		m_objectColor.getValue(color);
+	// Update datas and add mesh slot to be rendered only if the object is not culled.
+	if (m_sgNode->IsDirty(SG_Node::DIRTY_RENDER)) {
+		m_meshUser->SetMatrix(mt::mat4::FromAffineTransform(NodeGetWorldTransform()));
+		m_meshUser->SetFrontFace(!IsNegativeScaling());
+		m_sgNode->ClearDirty(SG_Node::DIRTY_RENDER);
 	}
 
 	// HARDCODED MULTIPLICATION FACTOR - this will affect the render resolution directly
@@ -170,14 +155,12 @@ void KX_FontObject::UpdateBuckets()
 	const float aspect = m_fsize / size;
 
 	// Account for offset
-	MT_Vector3 offset = NodeGetWorldOrientation() * m_offset * NodeGetWorldScaling();
+	mt::vec3 offset = NodeGetWorldOrientation() * m_offset * NodeGetWorldScaling();
 	// Orient the spacing vector
-	MT_Vector3 spacing = NodeGetWorldOrientation() * MT_Vector3(0.0f, m_fsize * m_line_spacing, 0.0f) * NodeGetWorldScaling()[1];
+	mt::vec3 spacing = NodeGetWorldOrientation() * mt::vec3(0.0f, m_fsize * m_line_spacing, 0.0f) * NodeGetWorldScaling()[1];
 
-	RAS_TextUser *textUser = (RAS_TextUser *)m_meshUser;
-
-	textUser->SetColor(MT_Vector4(color));
-	textUser->SetFrontFace(!m_bIsNegativeScaling);
+	textUser->SetLayer(m_layer);
+	textUser->SetColor(m_objectColor);
 	textUser->SetFontId(m_fontid);
 	textUser->SetSize(size);
 	textUser->SetDpi(m_dpi);
@@ -193,54 +176,34 @@ void KX_FontObject::SetText(const std::string& text)
 	m_text = text;
 	m_texts = split_string(text);
 
-	MT_Vector2 min;
-	MT_Vector2 max;
+	mt::vec2 min;
+	mt::vec2 max;
 	GetTextAabb(min, max);
-	m_boundingBox->SetAabb(MT_Vector3(min.x(), min.y(), 0.0f), MT_Vector3(max.x(), max.y(), 0.0f));
-}
-
-void KX_FontObject::UpdateCurveText(std::string newText) //eevee
-{
-	Object *ob = GetBlenderObject();
-	Curve *cu = (Curve *)ob->data;
-	if (cu->str) MEM_freeN(cu->str);
-	if (cu->strinfo) MEM_freeN(cu->strinfo);
-
-	cu->len_wchar = strlen(newText.c_str());
-	cu->len = BLI_strlen_utf8(newText.c_str());
-	cu->strinfo = (CharInfo *)MEM_callocN((cu->len_wchar + 4) * sizeof(CharInfo), "texteditinfo");
-	cu->str = (char *)MEM_mallocN(cu->len + sizeof(wchar_t), "str");
-	BLI_strncpy(cu->str, newText.c_str(), MAX_BGE_TEXT_LEN);
-
-	DEG_id_tag_update(&ob->id, ID_RECALC_GEOMETRY);
-	DEG_id_tag_update(&ob->id, ID_RECALC_COPY_ON_WRITE);
-
-	GetScene()->ResetTaaSamples();
+	m_boundingBox->SetAabb(mt::vec3(min.x, min.y, 0.0f), mt::vec3(max.x, max.y, 0.0f));
 }
 
 void KX_FontObject::UpdateTextFromProperty()
 {
 	// Allow for some logic brick control
-	CValue *prop = GetProperty("Text");
+	EXP_Value *prop = GetProperty("Text");
 	if (prop && prop->GetText() != m_text) {
 		SetText(prop->GetText());
-		UpdateCurveText(m_text); //eevee
 	}
 }
 
-const MT_Vector2 KX_FontObject::GetTextDimensions()
+const mt::vec2 KX_FontObject::GetTextDimensions()
 {
-	MT_Vector2 min;
-	MT_Vector2 max;
+	mt::vec2 min;
+	mt::vec2 max;
 	GetTextAabb(min, max);
 
 	// Scale the width and height by the object's scale
-	const MT_Vector3& scale = NodeGetLocalScaling();
+	const mt::vec3& scale = NodeGetLocalScaling();
 
-	return MT_Vector2((max.x() - min.x()) * fabs(scale.x()), (max.y() - min.y()) * fabs(scale.y()));
+	return mt::vec2((max.x - min.x) * fabs(scale.x), (max.y - min.y) * fabs(scale.y));
 }
 
-void KX_FontObject::GetTextAabb(MT_Vector2& min, MT_Vector2& max)
+void KX_FontObject::GetTextAabb(mt::vec2& min, mt::vec2& max)
 {
 	const float RES = BGE_FONT_RES * m_resolution;
 
@@ -250,22 +213,17 @@ void KX_FontObject::GetTextAabb(MT_Vector2& min, MT_Vector2& max)
 
 	BLF_size(m_fontid, size, m_dpi);
 
-	for (unsigned short i = 0, size = m_texts.size(); i < size; ++i) {
+	min = mt::vec2(FLT_MAX);
+	max = mt::vec2(-FLT_MAX);
+
+	for (unsigned short i = 0, count = m_texts.size(); i < count; ++i) {
 		rctf box;
 		const std::string& text = m_texts[i];
 		BLF_boundbox(m_fontid, text.c_str(), text.size(), &box);
-		if (i == 0) {
-			min.x() = box.xmin;
-			min.y() = box.ymin;
-			max.x() = box.xmax;
-			max.y() = box.ymax;
-		}
-		else {
-			min.x() = std::min(min.x(), box.xmin);
-			min.y() = std::min(min.y(), box.ymin - lineSpacing * i);
-			max.x() = std::max(max.x(), box.xmax);
-			max.y() = std::max(max.y(), box.ymax - lineSpacing * i);
-		}
+		min.x = std::min(min.x, box.xmin);
+		min.y = std::min(min.y, box.ymin - lineSpacing * i);
+		max.x = std::max(max.x, box.xmax);
+		max.y = std::max(max.y, box.ymax - lineSpacing * i);
 	}
 
 	min *= aspect;
@@ -289,30 +247,33 @@ int GetFontId(VFont *vfont)
 	}
 
 	// once we have packed working we can load the builtin font
-	const char *filepath = vfont->name;
 	if (BKE_vfont_is_builtin(vfont)) {
 		fontid = BLF_load("default");
-
-		/* XXX the following code is supposed to work (after you add get_builtin_packedfile to BKE_font.h )
-		 * unfortunately it's crashing on blf_glyph.c:173 because gc->glyph_width_max is 0
-		 */
-		// packedfile=get_builtin_packedfile();
-		// fontid= BLF_load_mem(font->name, (unsigned char*)packedfile->data, packedfile->size);
-		// return fontid;
-
-		return BLF_load("default");
+		return fontid;
 	}
 
-	// convert from absolute to relative
+	// convert from relative to absolute
 	char expanded[FILE_MAX];
-	BLI_strncpy(expanded, filepath, FILE_MAX);
-	BLI_path_abs(expanded, vfont->id.lib ? vfont->id.lib->name : KX_GetMainPath().c_str());
+	BLI_strncpy(expanded, vfont->name, FILE_MAX);
+
+	char libpath[FILE_MAX];
+	// Use library path if available and ensure it is absolute.
+	if (vfont->id.lib) {
+		BLI_strncpy(libpath, vfont->id.lib->name, FILE_MAX);
+		BLI_path_abs(libpath, KX_GetMainPath().c_str());
+	}
+	else {
+		BLI_strncpy(libpath, KX_GetMainPath().c_str(), FILE_MAX);
+	}
+	BLI_path_abs(expanded, libpath);
 
 	fontid = BLF_load(expanded);
 
 	// fallback
-	if (fontid == -1)
+	if (fontid == -1) {
 		fontid = BLF_load("default");
+		CM_Warning("failed loading font \"" << vfont->name << "\"");
+	}
 
 	return fontid;
 }
@@ -326,7 +287,7 @@ int GetFontId(VFont *vfont)
 PyTypeObject KX_FontObject::Type = {
 	PyVarObject_HEAD_INIT(nullptr, 0)
 	"KX_FontObject",
-	sizeof(PyObjectPlus_Proxy),
+	sizeof(EXP_PyObjectPlus_Proxy),
 	0,
 	py_base_dealloc,
 	0,
@@ -356,31 +317,32 @@ PyMethodDef KX_FontObject::Methods[] = {
 };
 
 PyAttributeDef KX_FontObject::Attributes[] = {
-	KX_PYATTRIBUTE_RW_FUNCTION("text", KX_FontObject, pyattr_get_text, pyattr_set_text),
-	KX_PYATTRIBUTE_RO_FUNCTION("dimensions", KX_FontObject, pyattr_get_dimensions),
-	KX_PYATTRIBUTE_FLOAT_RW("size", 0.0001f, 40.0f, KX_FontObject, m_fsize),
-	KX_PYATTRIBUTE_FLOAT_RW("resolution", 0.1f, 50.0f, KX_FontObject, m_resolution),
-	/* KX_PYATTRIBUTE_INT_RW("dpi", 0, 10000, false, KX_FontObject, m_dpi), */// no real need for expose this I think
-	KX_PYATTRIBUTE_NULL    //Sentinel
+	EXP_PYATTRIBUTE_RW_FUNCTION("text", KX_FontObject, pyattr_get_text, pyattr_set_text),
+	EXP_PYATTRIBUTE_RO_FUNCTION("dimensions", KX_FontObject, pyattr_get_dimensions),
+	EXP_PYATTRIBUTE_FLOAT_RW("size", 0.0001f, 40.0f, KX_FontObject, m_fsize),
+	EXP_PYATTRIBUTE_FLOAT_RW("resolution", 0.1f, 50.0f, KX_FontObject, m_resolution),
+	/* EXP_PYATTRIBUTE_INT_RW("dpi", 0, 10000, false, KX_FontObject, m_dpi), */// no real need for expose this I think
+	EXP_PYATTRIBUTE_NULL    //Sentinel
 };
 
-PyObject *KX_FontObject::pyattr_get_text(PyObjectPlus *self_v, const KX_PYATTRIBUTE_DEF *attrdef)
+PyObject *KX_FontObject::pyattr_get_text(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef)
 {
 	KX_FontObject *self = static_cast<KX_FontObject *>(self_v);
 	return PyUnicode_FromStdString(self->m_text);
 }
 
-int KX_FontObject::pyattr_set_text(PyObjectPlus *self_v, const KX_PYATTRIBUTE_DEF *attrdef, PyObject *value)
+int KX_FontObject::pyattr_set_text(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef, PyObject *value)
 {
 	KX_FontObject *self = static_cast<KX_FontObject *>(self_v);
-	if (!PyUnicode_Check(value))
+	if (!PyUnicode_Check(value)) {
 		return PY_SET_ATTR_FAIL;
+	}
 	const char *chars = _PyUnicode_AsString(value);
 
 	/* Allow for some logic brick control */
-	CValue *tprop = self->GetProperty("Text");
+	EXP_Value *tprop = self->GetProperty("Text");
 	if (tprop) {
-		CValue *newstringprop = new CStringValue(std::string(chars), "Text");
+		EXP_Value *newstringprop = new EXP_StringValue(std::string(chars), "Text");
 		self->SetProperty("Text", newstringprop);
 		newstringprop->Release();
 	}
@@ -391,7 +353,7 @@ int KX_FontObject::pyattr_set_text(PyObjectPlus *self_v, const KX_PYATTRIBUTE_DE
 	return PY_SET_ATTR_SUCCESS;
 }
 
-PyObject *KX_FontObject::pyattr_get_dimensions(PyObjectPlus *self_v, const KX_PYATTRIBUTE_DEF *attrdef)
+PyObject *KX_FontObject::pyattr_get_dimensions(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef)
 {
 	KX_FontObject *self = static_cast<KX_FontObject *>(self_v);
 	return PyObjectFrom(self->GetTextDimensions());

@@ -29,12 +29,17 @@
 #include "RAS_MeshUser.h"
 #include "RAS_DisplayArrayBucket.h"
 #include "RAS_BoundingBox.h"
+#include "RAS_BatchGroup.h"
+#include "RAS_Deformer.h"
 
-RAS_MeshUser::RAS_MeshUser(void *clientobj, RAS_BoundingBox *boundingBox)
-	:m_frontFace(true),
-	m_color(MT_Vector4(0.0f, 0.0f, 0.0f, 0.0f)),
+RAS_MeshUser::RAS_MeshUser(void *clientobj, RAS_BoundingBox *boundingBox, RAS_Deformer *deformer)
+	:m_layer((1 << 20) - 1),
+	m_frontFace(true),
+	m_color(mt::zero4),
 	m_boundingBox(boundingBox),
-	m_clientObject(clientobj)
+	m_clientObject(clientobj),
+	m_batchGroup(nullptr),
+	m_deformer(deformer)
 {
 	BLI_assert(m_boundingBox);
 	m_boundingBox->AddUser();
@@ -42,17 +47,24 @@ RAS_MeshUser::RAS_MeshUser(void *clientobj, RAS_BoundingBox *boundingBox)
 
 RAS_MeshUser::~RAS_MeshUser()
 {
-	for (RAS_MeshSlot *ms : m_meshSlots) {
-		delete ms;
-	}
 	m_meshSlots.clear();
 
 	m_boundingBox->RemoveUser();
+
+	if (m_batchGroup) {
+		// Has the side effect to deference the batch group.
+		m_batchGroup->SplitMeshUser(this);
+	}
 }
 
-void RAS_MeshUser::AddMeshSlot(RAS_MeshSlot *meshSlot)
+void RAS_MeshUser::NewMeshSlot(RAS_DisplayArrayBucket *arrayBucket)
 {
-	m_meshSlots.push_back(meshSlot);
+	m_meshSlots.emplace_back(this, arrayBucket);
+}
+
+unsigned int RAS_MeshUser::GetLayer() const
+{
+	return m_layer;
 }
 
 bool RAS_MeshUser::GetFrontFace() const
@@ -60,12 +72,12 @@ bool RAS_MeshUser::GetFrontFace() const
 	return m_frontFace;
 }
 
-const MT_Vector4& RAS_MeshUser::GetColor() const
+const mt::vec4& RAS_MeshUser::GetColor() const
 {
 	return m_color;
 }
 
-float *RAS_MeshUser::GetMatrix()
+const mt::mat4& RAS_MeshUser::GetMatrix() const
 {
 	return m_matrix;
 }
@@ -80,9 +92,24 @@ void *RAS_MeshUser::GetClientObject() const
 	return m_clientObject;
 }
 
-RAS_MeshSlotList& RAS_MeshUser::GetMeshSlots()
+std::vector<RAS_MeshSlot>& RAS_MeshUser::GetMeshSlots()
 {
 	return m_meshSlots;
+}
+
+RAS_BatchGroup *RAS_MeshUser::GetBatchGroup() const
+{
+	return m_batchGroup;
+}
+
+RAS_Deformer *RAS_MeshUser::GetDeformer()
+{
+	return m_deformer.get();
+}
+
+void RAS_MeshUser::SetLayer(unsigned int layer)
+{
+	m_layer = layer;
 }
 
 void RAS_MeshUser::SetFrontFace(bool frontFace)
@@ -90,15 +117,32 @@ void RAS_MeshUser::SetFrontFace(bool frontFace)
 	m_frontFace = frontFace;
 }
 
-void RAS_MeshUser::SetColor(const MT_Vector4& color)
+void RAS_MeshUser::SetColor(const mt::vec4& color)
 {
 	m_color = color;
 }
 
+void RAS_MeshUser::SetMatrix(const mt::mat4& matrix)
+{
+	m_matrix = matrix;
+}
+
+void RAS_MeshUser::SetBatchGroup(RAS_BatchGroup *batchGroup)
+{
+	if (m_batchGroup) {
+		m_batchGroup->RemoveMeshUser();
+	}
+
+	m_batchGroup = batchGroup;
+
+	if (m_batchGroup) {
+		m_batchGroup->AddMeshUser();
+	}
+}
+
 void RAS_MeshUser::ActivateMeshSlots()
 {
-	for (RAS_MeshSlotList::iterator it = m_meshSlots.begin(), end = m_meshSlots.end(); it != end; ++it) {
-		RAS_MeshSlot *ms = *it;
-		ms->m_displayArrayBucket->ActivateMesh(ms);
+	for (RAS_MeshSlot& ms : m_meshSlots) {
+		ms.m_displayArrayBucket->ActivateMesh(&ms);
 	}
 }

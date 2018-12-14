@@ -37,38 +37,30 @@
 #endif
 
 #include "BL_SkinDeformer.h"
-#include "BL_DeformableGameObject.h"
 #include <vector>
 
 struct Object;
 struct Key;
-class RAS_MeshObject;
+class RAS_Mesh;
 
 class BL_ShapeDeformer : public BL_SkinDeformer
 {
 public:
-	BL_ShapeDeformer(BL_DeformableGameObject *gameobj,
-	                 Object *bmeshobj,
-	                 RAS_MeshObject *mesh);
-
-	/* this second constructor is needed for making a mesh deformable on the fly. */
-	BL_ShapeDeformer(BL_DeformableGameObject *gameobj,
+	BL_ShapeDeformer(KX_GameObject *gameobj,
 					 Object *bmeshobj_old,
 					 Object *bmeshobj_new,
-					 RAS_MeshObject *mesh,
-					 bool release_object,
-					 bool recalc_normal,
-					 BL_ArmatureObject *arma = nullptr);
+					 RAS_Mesh *mesh,
+					 BL_ArmatureObject *arma);
 
-	virtual RAS_Deformer *GetReplica();
-	virtual void ProcessReplica();
 	virtual ~BL_ShapeDeformer();
 
-	bool Update();
+	bool UpdateInternal(bool recalcNormal);
+	virtual bool Update();
 	bool LoadShapeDrivers(KX_GameObject *parent);
 	bool ExecuteShapeDrivers();
 
 	Key *GetKey();
+	bool GetShape(std::vector<float> &shape) const;
 
 	void ForceUpdate()
 	{

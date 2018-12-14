@@ -37,6 +37,7 @@ set(INC
 	../Physics/Dummy
 	../Physics/Common
 	../Rasterizer
+	../Rasterizer/Node
 	../Rasterizer/RAS_OpenGLRasterizer
 	../SceneGraph
 	../VideoTexture
@@ -44,23 +45,19 @@ set(INC
 	../../blender/blenkernel
 	../../blender/blenlib
 	../../blender/blenloader
-	../../blender/blentranslation
-	../../blender/depsgraph
-	../../blender/draw/engines/eevee
-	../../blender/draw/engines/game
 	../../blender/gpu
 	../../blender/ikplugin
 	../../blender/imbuf
 	../../blender/makesdna
 	../../blender/makesrna
-	../../blender/render/extern/include
 	../../blender/windowmanager
 	../../../intern/guardedalloc
 	../../../intern/termcolor
 )
 
 set(INC_SYS
-	../../../intern/moto/include
+	../../../intern/debugbreak
+	../../../intern/mathfu
 	../../../extern/recastnavigation/Detour/Include
 	${EIGEN3_INCLUDE_DIRS}
 	${PTHREADS_INCLUDE_DIRS}
@@ -69,48 +66,48 @@ set(INC_SYS
 
 set(SRC
 	BL_ActionActuator.cpp
+	BL_ActionData.cpp
 	BL_ArmatureActuator.cpp
 	BL_ArmatureChannel.cpp
 	BL_ArmatureConstraint.cpp
 	BL_ArmatureObject.cpp
 	BL_BlenderDataConversion.cpp
-	BL_DeformableGameObject.cpp
+	BL_Converter.cpp
 	BL_MeshDeformer.cpp
 	BL_ModifierDeformer.cpp
+	BL_Resource.cpp
 	BL_ShapeDeformer.cpp
 	BL_SkinDeformer.cpp
-	KX_BlenderConverter.cpp
-	KX_BlenderScalarInterpolator.cpp
-	KX_BlenderSceneConverter.cpp
-	KX_ConvertActuators.cpp
-	KX_ConvertControllers.cpp
-	KX_ConvertProperties.cpp
-	KX_ConvertSensors.cpp
-	KX_IpoConvert.cpp
-	KX_LibLoadStatus.cpp
-	KX_SoftBodyDeformer.cpp
+	BL_ScalarInterpolator.cpp
+	BL_SceneConverter.cpp
+	BL_ConvertActuators.cpp
+	BL_ConvertControllers.cpp
+	BL_ConvertObjectInfo.cpp
+	BL_ConvertProperties.cpp
+	BL_ConvertSensors.cpp
+	BL_IpoConvert.cpp
 
 	BL_ActionActuator.h
+	BL_ActionData.h
 	BL_ArmatureActuator.h
 	BL_ArmatureChannel.h
 	BL_ArmatureConstraint.h
 	BL_ArmatureObject.h
 	BL_BlenderDataConversion.h
-	BL_DeformableGameObject.h
+	BL_Converter.h
 	BL_MeshDeformer.h
 	BL_ModifierDeformer.h
+	BL_Resource.h
 	BL_ShapeDeformer.h
 	BL_SkinDeformer.h
-	KX_BlenderConverter.h
-	KX_BlenderScalarInterpolator.h
-	KX_BlenderSceneConverter.h
-	KX_ConvertActuators.h
-	KX_ConvertControllers.h
-	KX_ConvertProperties.h
-	KX_ConvertSensors.h
-	KX_IpoConvert.h
-	KX_LibLoadStatus.h
-	KX_SoftBodyDeformer.h
+	BL_ScalarInterpolator.h
+	BL_SceneConverter.h
+	BL_ConvertActuators.h
+	BL_ConvertControllers.h
+	BL_ConvertObjectInfo.h
+	BL_ConvertProperties.h
+	BL_ConvertSensors.h
+	BL_IpoConvert.h
 )
 
 if(WITH_BULLET)
@@ -121,7 +118,7 @@ if(WITH_BULLET)
 endif()
 
 if(WITH_AUDASPACE)
-	add_definitions(-DWITH_AUDASPACE)
+	add_definitions(${AUDASPACE_DEFINITIONS})
 
 	list(APPEND INC_SYS
 		${AUDASPACE_C_INCLUDE_DIRS}

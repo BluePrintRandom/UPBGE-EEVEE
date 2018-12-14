@@ -27,21 +27,20 @@
 #ifndef __RAS_BOUNDING_BOX_H__
 #define __RAS_BOUNDING_BOX_H__
 
-#include "RAS_IDisplayArray.h"
-#include "MT_Vector3.h"
+#include "RAS_DisplayArray.h"
 
 class RAS_BoundingBoxManager;
 
-class RAS_BoundingBox
+class RAS_BoundingBox : public mt::SimdClassAllocator
 {
 protected:
 	/// True when the bounding box is modified.
 	bool m_modified;
 
 	/// The AABB minimum.
-	MT_Vector3 m_aabbMin;
+	mt::vec3 m_aabbMin;
 	/// The AABB maximum.
-	MT_Vector3 m_aabbMax;
+	mt::vec3 m_aabbMax;
 
 	/// The number of mesh user using this bounding box.
 	int m_users;
@@ -70,10 +69,10 @@ public:
 	/// Set the bounding box unmodified.
 	void ClearModified();
 
-	void GetAabb(MT_Vector3& aabbMin, MT_Vector3& aabbMax) const;
-	void SetAabb(const MT_Vector3& aabbMin, const MT_Vector3& aabbMax);
+	void GetAabb(mt::vec3& aabbMin, mt::vec3& aabbMax) const;
+	void SetAabb(const mt::vec3& aabbMin, const mt::vec3& aabbMax);
 	/// Compute the AABB of the bounding box AABB mixed with the passed AABB.
-	void ExtendAabb(const MT_Vector3& aabbMin, const MT_Vector3& aabbMax);
+	void ExtendAabb(const mt::vec3& aabbMin, const mt::vec3& aabbMax);
 
 	void CopyAabb(RAS_BoundingBox *other);
 
@@ -83,11 +82,23 @@ public:
 class RAS_MeshBoundingBox : public RAS_BoundingBox
 {
 private:
-	/// The display arrays used to compute the AABB.
-	RAS_IDisplayArrayList m_displayArrayList;
+	/// Display arrays used to compute the AABB.
+	struct DisplayArraySlot
+	{
+		RAS_DisplayArray *m_displayArray;
+		CM_UpdateClient<RAS_DisplayArray> m_arrayUpdateClient;
+		/// AABB minimum of only this display array.
+		mt::vec3 m_aabbMin;
+		/// AABB maximum of only this display array.
+		mt::vec3 m_aabbMax;
+	};
+
+	/// The sub AABB per display array.
+	// Use aligned allocator because DisplayArraySlot use aligned members.
+	std::vector<DisplayArraySlot, mt::simd_allocator<DisplayArraySlot> > m_slots;
 
 public:
-	RAS_MeshBoundingBox(RAS_BoundingBoxManager *manager, const RAS_IDisplayArrayList displayArrayList);
+	RAS_MeshBoundingBox(RAS_BoundingBoxManager *manager, const RAS_DisplayArrayList& displayArrayList);
 	virtual ~RAS_MeshBoundingBox();
 
 	virtual RAS_BoundingBox *GetReplica();

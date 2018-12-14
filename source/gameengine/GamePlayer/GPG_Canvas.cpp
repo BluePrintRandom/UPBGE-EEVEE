@@ -35,7 +35,6 @@
 #include "KX_Globals.h"
 
 #include "RAS_Rasterizer.h"
-#include "KX_KetsjiEngine.h"
 
 #include "BLI_string.h"
 #include "BLI_path_util.h"
@@ -46,11 +45,13 @@
 #include "DNA_space_types.h"
 
 GPG_Canvas::GPG_Canvas(RAS_Rasterizer *rasty, GHOST_IWindow *window)
-	: RAS_ICanvas(rasty),
+	:RAS_ICanvas(rasty),
 	m_window(window),
 	m_width(0),
 	m_height(0)
 {
+	m_rasterizer->GetViewport(m_viewport);
+
 	if (m_window) {
 		GHOST_Rect bnds;
 		m_window->getClientBounds(bnds);
@@ -60,6 +61,31 @@ GPG_Canvas::GPG_Canvas(RAS_Rasterizer *rasty, GHOST_IWindow *window)
 
 GPG_Canvas::~GPG_Canvas()
 {
+}
+
+int GPG_Canvas::GetWidth() const
+{
+	return m_width;
+}
+
+int GPG_Canvas::GetHeight() const
+{
+	return m_height;
+}
+
+int GPG_Canvas::GetMaxX() const
+{
+	return (m_width - 1);
+}
+
+int GPG_Canvas::GetMaxY() const
+{
+	return (m_height - 1);
+}
+
+RAS_Rect &GPG_Canvas::GetWindowArea()
+{
+	return m_area;
 }
 
 void GPG_Canvas::BeginFrame()
@@ -80,8 +106,35 @@ void GPG_Canvas::EndDraw()
 
 void GPG_Canvas::Resize(int width, int height)
 {
-	m_viewportArea = RAS_Rect(width, height);
-	m_windowArea = RAS_Rect(width, height);
+	m_width = width;
+	m_height = height;
+
+	// initialize area so that it's available for game logic on frame 1 (ImageViewport)
+	m_area.SetLeft(0);
+	m_area.SetBottom(0);
+	m_area.SetRight(width - 1);
+	m_area.SetTop(height - 1);
+}
+
+void GPG_Canvas::SetViewPort(int x, int y, int width, int height)
+{
+	m_viewport[0] = x;
+	m_viewport[1] = y;
+	m_viewport[2] = width;
+	m_viewport[3] = height;
+}
+
+void GPG_Canvas::UpdateViewPort(int x, int y, int width, int height)
+{
+	m_viewport[0] = x;
+	m_viewport[1] = y;
+	m_viewport[2] = width;
+	m_viewport[3] = height;
+}
+
+const int *GPG_Canvas::GetViewPort()
+{
+	return m_viewport;
 }
 
 void GPG_Canvas::MakeScreenShot(const std::string& filename)
@@ -105,7 +158,6 @@ void GPG_Canvas::MakeScreenShot(const std::string& filename)
 void GPG_Canvas::Init()
 {
 	if (m_window) {
-		m_rasterizer->Clear(RAS_Rasterizer::RAS_COLOR_BUFFER_BIT | RAS_Rasterizer::RAS_DEPTH_BUFFER_BIT);
 		m_window->setDrawingContextType(GHOST_kDrawingContextTypeOpenGL);
 		BLI_assert(m_window->getDrawingContextType() == GHOST_kDrawingContextTypeOpenGL);
 	}
@@ -132,16 +184,22 @@ void GPG_Canvas::SetMouseState(RAS_MouseState mousestate)
 	if (m_window) {
 		switch (mousestate) {
 			case MOUSE_INVISIBLE:
+			{
 				m_window->setCursorVisibility(false);
 				break;
+			}
 			case MOUSE_WAIT:
+			{
 				m_window->setCursorShape(GHOST_kStandardCursorWait);
 				m_window->setCursorVisibility(true);
 				break;
+			}
 			case MOUSE_NORMAL:
+			{
 				m_window->setCursorShape(GHOST_kStandardCursorDefault);
 				m_window->setCursorVisibility(true);
 				break;
+			}
 		}
 	}
 }
@@ -153,20 +211,12 @@ void GPG_Canvas::SwapBuffers()
 	}
 }
 
-void GPG_Canvas::SetSwapInterval(int interval)
+void GPG_Canvas::SetSwapControl(SwapControl control)
 {
 	if (m_window) {
-		m_window->setSwapInterval(interval);
+		m_window->setSwapInterval(swapInterval[control]);
 	}
-}
-
-bool GPG_Canvas::GetSwapInterval(int& intervalOut)
-{
-	if (m_window) {
-		return (bool)m_window->getSwapInterval(intervalOut);
-	}
-
-	return false;
+	RAS_ICanvas::SetSwapControl(control);
 }
 
 void GPG_Canvas::GetDisplayDimensions(int &width, int &height)
@@ -217,5 +267,22 @@ bool GPG_Canvas::GetFullScreen()
 
 void GPG_Canvas::ConvertMousePosition(int x, int y, int &r_x, int &r_y, bool UNUSED(screen))
 {
-	m_window->screenToClient(x, y, r_x, r_y);
+	int _x;
+	int _y;
+	m_window->screenToClient(x, y, _x, _y);
+
+	const float fac = m_window->getNativePixelSize();
+
+	r_x = _x * fac;
+	r_y = _y * fac;
+}
+
+float GPG_Canvas::GetMouseNormalizedX(int x)
+{
+	return float(x) / GetMaxX();
+}
+
+float GPG_Canvas::GetMouseNormalizedY(int y)
+{
+	return float(y) / GetMaxY();
 }

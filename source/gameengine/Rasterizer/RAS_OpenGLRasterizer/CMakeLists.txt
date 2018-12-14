@@ -25,9 +25,11 @@
 
 set(INC
 	..
+	../Node
 	# XXX Remove these <<<
 	../../BlenderRoutines
 	../../Common
+	../../Converter
 	../../Expressions
 	../../GameLogic
 	../../Ketsji
@@ -37,20 +39,15 @@ set(INC
 	../../../blender/blenfont
 	../../../blender/blenkernel
 	../../../blender/blenlib
-	../../../blender/blentranslation
-	../../../blender/draw/intern
-	../../../blender/draw/engines/eevee/
 	../../../blender/gpu
 	../../../blender/makesdna
-	../../../blender/makesrna
-	../../../blender/render/extern/include
-	../../../blender/render/intern/include
 	../../../../intern/glew-mx
 	../../../../intern/guardedalloc
 )
 
 set(INC_SYS
-	../../../../intern/moto/include
+	../../../intern/debugbreak
+	../../../../intern/mathfu
 	${GLEW_INCLUDE_PATH}
 	${BOOST_INCLUDE_DIR}
 )
@@ -58,11 +55,19 @@ set(INC_SYS
 set(SRC
 	RAS_OpenGLDebugDraw.cpp
 	RAS_OpenGLLight.cpp
+	RAS_OpenGLQuery.cpp
+	RAS_OpenGLSync.cpp
 	RAS_OpenGLRasterizer.cpp
+	RAS_StorageVao.cpp
+	RAS_StorageVbo.cpp
 
 	RAS_OpenGLDebugDraw.h
 	RAS_OpenGLLight.h
+	RAS_OpenGLQuery.h
+	RAS_OpenGLSync.h
 	RAS_OpenGLRasterizer.h
+	RAS_StorageVao.h
+	RAS_StorageVbo.h
 )
 
 add_definitions(${GL_DEFINITIONS})

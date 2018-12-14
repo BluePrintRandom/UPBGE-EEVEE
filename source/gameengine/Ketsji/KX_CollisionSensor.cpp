@@ -38,10 +38,9 @@
 #include "SCA_LogicManager.h"
 #include "KX_GameObject.h"
 #include "KX_CollisionEventManager.h"
+#include "KX_Mesh.h"
 
 #include "PHY_IPhysicsController.h"
-
-#include "RAS_MeshObject.h"
 
 #include <iostream>
 #include "BLI_utildefines.h"
@@ -108,10 +107,10 @@ KX_CollisionSensor::KX_CollisionSensor(SCA_EventManager *eventmgr, KX_GameObject
 	m_bCollisionPulse(bCollisionPulse),
 	m_hitMaterial("")
 {
-	m_colliders = new CListValue<KX_GameObject>();
+	m_colliders = new EXP_ListValue<KX_GameObject>();
 
-	KX_ClientObjectInfo *client_info = gameobj->getClientInfo();
-	client_info->m_sensors.push_back(this);
+	KX_ClientObjectInfo& clientInfo = gameobj->GetClientInfo();
+	clientInfo.m_sensors.push_back(this);
 
 	m_physCtrl = gameobj->GetPhysicsController();
 	BLI_assert(!gameobj->GetPhysicsController() || m_physCtrl);
@@ -134,7 +133,7 @@ KX_CollisionSensor::~KX_CollisionSensor()
 	m_colliders->Release();
 }
 
-CValue *KX_CollisionSensor::GetReplica()
+EXP_Value *KX_CollisionSensor::GetReplica()
 {
 	KX_CollisionSensor *replica = new KX_CollisionSensor(*this);
 	replica->ProcessReplica();
@@ -144,7 +143,7 @@ CValue *KX_CollisionSensor::GetReplica()
 void KX_CollisionSensor::ProcessReplica()
 {
 	SCA_ISensor::ProcessReplica();
-	m_colliders = new CListValue<KX_GameObject>();
+	m_colliders = new EXP_ListValue<KX_GameObject>();
 	Init();
 }
 
@@ -156,9 +155,9 @@ void KX_CollisionSensor::ReParent(SCA_IObject *parent)
 		m_physCtrl = sphy;
 	}
 
-	KX_ClientObjectInfo *client_info = gameobj->getClientInfo();
+	KX_ClientObjectInfo& clientInfo = gameobj->GetClientInfo();
 
-	client_info->m_sensors.push_back(this);
+	clientInfo.m_sensors.push_back(this);
 	SCA_ISensor::ReParent(parent);
 }
 
@@ -188,13 +187,13 @@ void KX_CollisionSensor::UnregisterSumo(KX_CollisionEventManager *collisionman)
 
 // this function is called only for sensor objects
 // return true if the controller can collide with the object
-bool KX_CollisionSensor::BroadPhaseSensorFilterCollision(void *obj1, void *obj2)
+bool KX_CollisionSensor::BroadPhaseSensorFilterCollision(PHY_IPhysicsController *ctrl1, PHY_IPhysicsController *ctrl2)
 {
-	BLI_assert(obj1 == m_physCtrl && obj2);
+	BLI_assert(ctrl1 == m_physCtrl && ctrl2);
 
 	KX_GameObject *myobj = (KX_GameObject *)GetParent();
 	KX_GameObject *myparent = myobj->GetParent();
-	KX_ClientObjectInfo *client_info = static_cast<KX_ClientObjectInfo *>(((PHY_IPhysicsController *)obj2)->GetNewClientInfo());
+	KX_ClientObjectInfo *client_info = static_cast<KX_ClientObjectInfo *>(ctrl2->GetNewClientInfo());
 	KX_ClientObjectInfo *my_client_info = static_cast<KX_ClientObjectInfo *>(m_physCtrl->GetNewClientInfo());
 	KX_GameObject *otherobj = (client_info ? client_info->m_gameobject : nullptr);
 
@@ -203,21 +202,17 @@ bool KX_CollisionSensor::BroadPhaseSensorFilterCollision(void *obj1, void *obj2)
 	if (!otherobj ||
 	    otherobj == myparent ||     // don't interact with our parent
 	    (my_client_info->m_type == KX_ClientObjectInfo::OBACTORSENSOR &&
-	     client_info->m_type != KX_ClientObjectInfo::ACTOR))    // only with actor objects
-	{
+	     client_info->m_type != KX_ClientObjectInfo::ACTOR)) {  // only with actor objects
 		return false;
 	}
 
 	bool found = m_touchedpropname.empty();
 	if (!found) {
 		if (m_bFindMaterial) {
-			for (unsigned int i = 0; i < otherobj->GetMeshCount(); ++i) {
-				RAS_MeshObject *meshObj = otherobj->GetMesh(i);
-				for (unsigned int j = 0; j < meshObj->NumMaterials(); ++j) {
-					found = (m_touchedpropname == std::string(meshObj->GetMaterialName(j), 2));
-					if (found) {
-						break;
-					}
+			for (KX_Mesh *meshObj : otherobj->GetMeshList()) {
+				found = (meshObj->FindMaterialName(m_touchedpropname) != nullptr);
+				if (found) {
+					break;
 				}
 			}
 		}
@@ -228,15 +223,14 @@ bool KX_CollisionSensor::BroadPhaseSensorFilterCollision(void *obj1, void *obj2)
 	return found;
 }
 
-bool KX_CollisionSensor::NewHandleCollision(void *object1, void *object2, const PHY_CollData *colldata)
+bool KX_CollisionSensor::NewHandleCollision(PHY_IPhysicsController *ctrl1, PHY_IPhysicsController *ctrl2, const PHY_ICollData *colldata)
 {
 	KX_GameObject *parent = (KX_GameObject *)GetParent();
 
 	// need the mapping from PHY_IPhysicsController to gameobjects now
 
-	KX_ClientObjectInfo *client_info = static_cast<KX_ClientObjectInfo *> (object1 == m_physCtrl ?
-	                                                                       ((PHY_IPhysicsController *)object2)->GetNewClientInfo() :
-	                                                                       ((PHY_IPhysicsController *)object1)->GetNewClientInfo());
+	KX_ClientObjectInfo *client_info = static_cast<KX_ClientObjectInfo *> (ctrl1 == m_physCtrl ?
+	                                                                       ctrl2->GetNewClientInfo() : ctrl1->GetNewClientInfo());
 
 	KX_GameObject *gameobj = (client_info ?
 	                          client_info->m_gameobject :
@@ -245,21 +239,17 @@ bool KX_CollisionSensor::NewHandleCollision(void *object1, void *object2, const 
 	// add the same check as in SCA_ISensor::Activate(),
 	// we don't want to record collision when the sensor is not active.
 	if (m_links && !m_suspended &&
-	    gameobj && (gameobj != parent) && client_info->isActor())
-	{
+	    gameobj && (gameobj != parent) && client_info->isActor()) {
 
 		bool found = m_touchedpropname.empty();
 		bool hitMaterial = false;
 		if (!found) {
 			if (m_bFindMaterial) {
-				for (unsigned int i = 0; i < gameobj->GetMeshCount(); ++i) {
-					RAS_MeshObject *meshObj = gameobj->GetMesh(i);
-					for (unsigned int j = 0; j < meshObj->NumMaterials(); ++j) {
-						found = (m_touchedpropname == std::string(meshObj->GetMaterialName(j), 2));
-						if (found) {
-							hitMaterial = true;
-							break;
-						}
+				for (KX_Mesh *meshObj : gameobj->GetMeshList()) {
+					found = (meshObj->FindMaterialName(m_touchedpropname) != nullptr);
+					if (found) {
+						hitMaterial = true;
+						break;
 					}
 				}
 			}
@@ -293,7 +283,7 @@ bool KX_CollisionSensor::NewHandleCollision(void *object1, void *object2, const 
 PyTypeObject KX_CollisionSensor::Type = {
 	PyVarObject_HEAD_INIT(nullptr, 0)
 	"KX_CollisionSensor",
-	sizeof(PyObjectPlus_Proxy),
+	sizeof(EXP_PyObjectPlus_Proxy),
 	0,
 	py_base_dealloc,
 	0,
@@ -317,18 +307,18 @@ PyMethodDef KX_CollisionSensor::Methods[] = {
 };
 
 PyAttributeDef KX_CollisionSensor::Attributes[] = {
-	KX_PYATTRIBUTE_STRING_RW("propName", 0, MAX_PROP_NAME, false, KX_CollisionSensor, m_touchedpropname),
-	KX_PYATTRIBUTE_BOOL_RW("useMaterial", KX_CollisionSensor, m_bFindMaterial),
-	KX_PYATTRIBUTE_BOOL_RW("usePulseCollision", KX_CollisionSensor, m_bCollisionPulse),
-	KX_PYATTRIBUTE_STRING_RO("hitMaterial", KX_CollisionSensor, m_hitMaterial),
-	KX_PYATTRIBUTE_RO_FUNCTION("hitObject", KX_CollisionSensor, pyattr_get_object_hit),
-	KX_PYATTRIBUTE_RO_FUNCTION("hitObjectList", KX_CollisionSensor, pyattr_get_object_hit_list),
-	KX_PYATTRIBUTE_NULL    //Sentinel
+	EXP_PYATTRIBUTE_STRING_RW("propName", 0, MAX_PROP_NAME, false, KX_CollisionSensor, m_touchedpropname),
+	EXP_PYATTRIBUTE_BOOL_RW("useMaterial", KX_CollisionSensor, m_bFindMaterial),
+	EXP_PYATTRIBUTE_BOOL_RW("usePulseCollision", KX_CollisionSensor, m_bCollisionPulse),
+	EXP_PYATTRIBUTE_STRING_RO("hitMaterial", KX_CollisionSensor, m_hitMaterial),
+	EXP_PYATTRIBUTE_RO_FUNCTION("hitObject", KX_CollisionSensor, pyattr_get_object_hit),
+	EXP_PYATTRIBUTE_RO_FUNCTION("hitObjectList", KX_CollisionSensor, pyattr_get_object_hit_list),
+	EXP_PYATTRIBUTE_NULL    //Sentinel
 };
 
 /* Python API */
 
-PyObject *KX_CollisionSensor::pyattr_get_object_hit(PyObjectPlus *self_v, const KX_PYATTRIBUTE_DEF *attrdef)
+PyObject *KX_CollisionSensor::pyattr_get_object_hit(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef)
 {
 	KX_CollisionSensor *self = static_cast<KX_CollisionSensor *>(self_v);
 
@@ -340,7 +330,7 @@ PyObject *KX_CollisionSensor::pyattr_get_object_hit(PyObjectPlus *self_v, const 
 	}
 }
 
-PyObject *KX_CollisionSensor::pyattr_get_object_hit_list(PyObjectPlus *self_v, const KX_PYATTRIBUTE_DEF *attrdef)
+PyObject *KX_CollisionSensor::pyattr_get_object_hit_list(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef)
 {
 	KX_CollisionSensor *self = static_cast<KX_CollisionSensor *>(self_v);
 	return self->m_colliders->GetProxy();

@@ -33,17 +33,14 @@
 #define __PHY_IPHYSICSCONTROLLER_H__
 
 #include <vector>
+
 #include "PHY_IController.h"
 
 class PHY_IMotionState;
 class PHY_IPhysicsEnvironment;
 
-class MT_Vector3;
-class MT_Vector3;
-class MT_Matrix3x3;
-
 class KX_GameObject;
-class RAS_MeshObject;
+class RAS_Mesh;
 
 /**
  * PHY_IPhysicsController is the abstract simplified Interface to a physical object.
@@ -71,31 +68,31 @@ public:
 	virtual void SetPhysicsEnvironment(class PHY_IPhysicsEnvironment *env) = 0;
 
 	// kinematic methods
-	virtual void RelativeTranslate(const MT_Vector3& dloc, bool local) = 0;
-	virtual void RelativeRotate(const MT_Matrix3x3 &, bool local) = 0;
-	virtual MT_Matrix3x3 GetOrientation() = 0;
-	virtual void SetOrientation(const MT_Matrix3x3& orn) = 0;
-	virtual void SetPosition(const MT_Vector3& pos) = 0;
-	virtual void GetPosition(MT_Vector3& pos) const = 0;
-	virtual void SetScaling(const MT_Vector3& scale) = 0;
+	virtual void RelativeTranslate(const mt::vec3& dloc, bool local) = 0;
+	virtual void RelativeRotate(const mt::mat3 &, bool local) = 0;
+	virtual mt::mat3 GetOrientation() = 0;
+	virtual void SetOrientation(const mt::mat3& orn) = 0;
+	virtual void SetPosition(const mt::vec3& pos) = 0;
+	virtual mt::vec3 GetPosition() const = 0;
+	virtual void SetScaling(const mt::vec3& scale) = 0;
 	virtual void SetTransform() = 0;
 
-	virtual MT_Scalar GetMass() = 0;
-	virtual void SetMass(MT_Scalar newmass) = 0;
+	virtual float GetMass() = 0;
+	virtual void SetMass(float newmass) = 0;
 
 	// physics methods
-	virtual void ApplyImpulse(const MT_Vector3& attach, const MT_Vector3& impulse, bool local) = 0;
-	virtual void ApplyTorque(const MT_Vector3& torque, bool local) = 0;
-	virtual void ApplyForce(const MT_Vector3& force, bool local) = 0;
-	virtual void SetAngularVelocity(const MT_Vector3& ang_vel, bool local) = 0;
-	virtual void SetLinearVelocity(const MT_Vector3& lin_vel, bool local) = 0;
-	virtual void ResolveCombinedVelocities(float linvelX, float linvelY, float linvelZ, float angVelX, float angVelY, float angVelZ) = 0;
+	virtual void ApplyImpulse(const mt::vec3& attach, const mt::vec3& impulse, bool local) = 0;
+	virtual void ApplyTorque(const mt::vec3& torque, bool local) = 0;
+	virtual void ApplyForce(const mt::vec3& force, bool local) = 0;
+	virtual void SetAngularVelocity(const mt::vec3& ang_vel, bool local) = 0;
+	virtual void SetLinearVelocity(const mt::vec3& lin_vel, bool local) = 0;
 
 	virtual float GetLinearDamping() const = 0;
 	virtual float GetAngularDamping() const = 0;
 	virtual void SetLinearDamping(float damping) = 0;
 	virtual void SetAngularDamping(float damping) = 0;
 	virtual void SetDamping(float linear, float angular) = 0;
+	virtual void SetGravity(const mt::vec3 &gravity) = 0;
 
 	virtual void RefreshCollisions() = 0;
 	virtual void SuspendPhysics(bool freeConstraints) = 0;
@@ -105,11 +102,17 @@ public:
 
 	virtual void SetActive(bool active) = 0;
 
+	virtual unsigned short GetCollisionGroup() const = 0;
+	virtual unsigned short GetCollisionMask() const = 0;
+	virtual void SetCollisionGroup(unsigned short group) = 0;
+	virtual void SetCollisionMask(unsigned short mask) = 0;
+
 	// reading out information from physics
-	virtual MT_Vector3 GetLinearVelocity() = 0;
-	virtual MT_Vector3 GetAngularVelocity() = 0;
-	virtual MT_Vector3 GetVelocity(const MT_Vector3& pos) = 0;
-	virtual MT_Vector3 GetLocalInertia() = 0;
+	virtual mt::vec3 GetLinearVelocity() = 0;
+	virtual mt::vec3 GetAngularVelocity() = 0;
+	virtual mt::vec3 GetVelocity(const mt::vec3& pos) = 0;
+	virtual mt::vec3 GetLocalInertia() = 0;
+	virtual mt::vec3 GetGravity() = 0;
 
 	// dyna's that are rigidbody are free in orientation, dyna's with non-rigidbody are restricted
 	virtual void SetRigidBody(bool rigid) = 0;
@@ -123,7 +126,6 @@ public:
 		return nullptr;
 	}
 
-	virtual void CalcXform() = 0;
 	virtual void SetMargin(float margin) = 0;
 	virtual float GetMargin() const = 0;
 	virtual float GetRadius() const = 0;
@@ -148,11 +150,8 @@ public:
 	virtual bool IsDynamicsSuspended() const = 0;
 	virtual bool IsPhysicsSuspended() = 0;
 
-	virtual bool ReinstancePhysicsShape(KX_GameObject *from_gameobj, RAS_MeshObject *from_meshobj, bool dupli = false) = 0;
+	virtual bool ReinstancePhysicsShape(KX_GameObject *from_gameobj, RAS_Mesh *from_meshobj, bool dupli = false) = 0;
 	virtual void ReplacePhysicsShape(PHY_IPhysicsController *phyctrl) = 0;
-
-	/* Method to replicate rigid body joint contraints for group instances. */
-	virtual void ReplicateConstraints(KX_GameObject *gameobj, std::vector<KX_GameObject *> constobj) = 0;
 };
 
 #endif  /* __PHY_IPHYSICSCONTROLLER_H__ */

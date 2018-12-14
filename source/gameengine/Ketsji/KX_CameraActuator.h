@@ -36,7 +36,6 @@
 #define __KX_CAMERAACTUATOR_H__
 
 #include "SCA_IActuator.h"
-#include "MT_Scalar.h"
 #include "SCA_LogicManager.h"
 
 /**
@@ -55,11 +54,11 @@ private :
 	SCA_IObject *m_ob;
 
 	/** height (float), */
-	//const MT_Scalar m_height;
+	//const float m_height;
 	/** min (float), */
-	//const MT_Scalar m_minHeight;
+	//const float m_minHeight;
 	/** max (float), */
-	//const MT_Scalar m_maxHeight;
+	//const float m_maxHeight;
 	
 	/** height (float), */
 	float m_height;
@@ -86,7 +85,7 @@ public:
 	KX_CameraActuator(
 
 		SCA_IObject *gameobj,
-		//const CValue *ob,
+		//const EXP_Value *ob,
 		SCA_IObject *ob,
 		float hght,
 		float minhght,
@@ -100,8 +99,8 @@ public:
 
 
 
-	/** Methods Inherited from  CValue */
-	CValue* GetReplica();
+	/** Methods Inherited from  EXP_Value */
+	EXP_Value* GetReplica();
 	virtual void ProcessReplica();
 	
 
@@ -119,8 +118,8 @@ public:
 	/* --------------------------------------------------------------------- */
 
 	/* set object to look at */
-	static PyObject*	pyattr_get_object(PyObjectPlus *self_v, const KX_PYATTRIBUTE_DEF *attrdef);
-	static int			pyattr_set_object(PyObjectPlus *self_v, const KX_PYATTRIBUTE_DEF *attrdef, PyObject *value);
+	static PyObject*	pyattr_get_object(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef);
+	static int			pyattr_set_object(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef, PyObject *value);
 
 #endif  /* WITH_PYTHON */
 

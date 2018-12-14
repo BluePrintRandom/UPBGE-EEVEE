@@ -36,9 +36,8 @@
 #  pragma warning (disable:4786)
 #endif
 
-#include "MT_Matrix4x4.h"
+#include "mathfu.h"
 
-#include "RAS_DebugDraw.h"
 #include "RAS_Rect.h"
 
 #include <string>
@@ -48,38 +47,26 @@
 #include <memory>
 
 class RAS_OpenGLRasterizer;
-class RAS_FrameBuffer;
+class RAS_OpenGLDebugDraw;
+class RAS_OpenGLLight;
 class RAS_ICanvas;
+class RAS_OffScreen;
 class RAS_MeshSlot;
-class RAS_IDisplayArray;
-class SCA_IScene;
+class RAS_DebugDraw;
+class RAS_InstancingBuffer;
+class RAS_ILightObject;
+class RAS_ISync;
 struct KX_ClientObjectInfo;
 class KX_RayCast;
+
 struct GPUShader;
-struct GPUTexture;
-struct GPUViewport;
-struct DRWShadingGroup;
 
 /**
  * 3D rendering device context interface. 
  */
-class RAS_Rasterizer
+class RAS_Rasterizer : public mt::SimdClassAllocator
 {
 public:
-
-	enum FrameBufferType {
-		RAS_FRAMEBUFFER_FILTER0 = 0,
-		RAS_FRAMEBUFFER_FILTER1,
-		RAS_FRAMEBUFFER_EYE_LEFT0,
-		RAS_FRAMEBUFFER_EYE_RIGHT0,
-		RAS_FRAMEBUFFER_EYE_LEFT1,
-		RAS_FRAMEBUFFER_EYE_RIGHT1,
-		RAS_FRAMEBUFFER_BLIT_DEPTH,
-		RAS_FRAMEBUFFER_MAX,
-
-		RAS_FRAMEBUFFER_CUSTOM,
-	};
-
 	/**
 	 * Drawing types
 	 */
@@ -88,8 +75,6 @@ public:
 		RAS_TEXTURED,
 		RAS_RENDERER,
 		RAS_SHADOW,
-		RAS_DEPTH_PASS,
-		RAS_DEPTH_PASS_CLIP,
 		RAS_DRAW_MAX,
 	};
 
@@ -143,6 +128,17 @@ public:
 		RAS_MIPMAP_MAX,  /* Should always be last */
 	};
 
+	/**
+	 * Override shaders
+	 */
+	enum OverrideShaderType {
+		RAS_OVERRIDE_SHADER_NONE,
+		RAS_OVERRIDE_SHADER_BLACK,
+		RAS_OVERRIDE_SHADER_BLACK_INSTANCING,
+		RAS_OVERRIDE_SHADER_SHADOW_VARIANCE,
+		RAS_OVERRIDE_SHADER_SHADOW_VARIANCE_INSTANCING,
+	};
+
 	enum ShadowType {
 		RAS_SHADOW_NONE,
 		RAS_SHADOW_SIMPLE,
@@ -158,7 +154,6 @@ public:
 		RAS_BLEND,
 		RAS_COLOR_MATERIAL,
 		RAS_CULL_FACE,
-		RAS_FOG,
 		RAS_LIGHTING,
 		RAS_MULTISAMPLE,
 		RAS_POLYGON_STIPPLE,
@@ -204,6 +199,20 @@ public:
 		RAS_STENCIL_BUFFER_BIT = 0x8
 	};
 
+	enum OffScreenType {
+		RAS_OFFSCREEN_FILTER0,
+		RAS_OFFSCREEN_FILTER1,
+		RAS_OFFSCREEN_EYE_LEFT0,
+		RAS_OFFSCREEN_EYE_RIGHT0,
+		RAS_OFFSCREEN_EYE_LEFT1,
+		RAS_OFFSCREEN_EYE_RIGHT1,
+		RAS_OFFSCREEN_BLIT_DEPTH,
+
+		RAS_OFFSCREEN_CUSTOM,
+
+		RAS_OFFSCREEN_MAX,
+	};
+
 	enum HdrType {
 		RAS_HDR_NONE = 0,
 		RAS_HDR_HALF_FLOAT,
@@ -211,84 +220,87 @@ public:
 		RAS_HDR_MAX
 	};
 
+	enum ColorManagement {
+		RAS_COLOR_MANAGEMENT_LINEAR = 0,
+		RAS_COLOR_MANAGEMENT_SRGB,
+		RAS_COLOR_MANAGEMENT_MAX
+	};
+
+	enum ShaderToScreen {
+		RAS_SHADER_TO_SCREEN_NORMAL = 0,
+		RAS_SHADER_TO_SCREEN_STEREO_STIPPLE,
+		RAS_SHADER_TO_SCREEN_STEREO_ANAGLYPH,
+		RAS_SHADER_TO_SCREEN_MAX
+	};
+
 	/** Return the output frame buffer normally used for the input frame buffer
 	 * index in case of filters render.
 	 * \param index The input frame buffer, can be a non-filter frame buffer.
 	 * \return The output filter frame buffer.
 	 */
-	static RAS_Rasterizer::FrameBufferType NextFilterFrameBuffer(FrameBufferType index);
+	static OffScreenType NextFilterOffScreen(OffScreenType index);
 
 	/** Return the output frame buffer normally used for the input frame buffer
 	 * index in case of simple render.
 	 * \param index The input render frame buffer, can be a eye frame buffer.
 	 * \return The output render frame buffer.
 	 */
-	static RAS_Rasterizer::FrameBufferType NextRenderFrameBuffer(FrameBufferType index);
+	static OffScreenType NextRenderOffScreen(OffScreenType index);
 
 private:
-
-	class FrameBuffers
+	class OffScreens
 	{
 	private:
-
-		RAS_FrameBuffer *m_frameBuffers[RAS_FRAMEBUFFER_MAX];
-
-		/* We need to free all textures at ge exit so we do member variables */
-		GPUTexture *m_colorTextureList[RAS_FRAMEBUFFER_MAX];
-		GPUTexture *m_depthTextureList[RAS_FRAMEBUFFER_MAX];
+		std::unique_ptr<RAS_OffScreen> m_offScreens[RAS_OFFSCREEN_MAX];
 		unsigned int m_width;
 		unsigned int m_height;
 		int m_samples;
 		HdrType m_hdr;
 
 	public:
-		FrameBuffers();
-		~FrameBuffers();
+		OffScreens();
+		~OffScreens();
 
 		void Update(RAS_ICanvas *canvas);
-		RAS_FrameBuffer *GetFrameBuffer(FrameBufferType type);
+		RAS_OffScreen *GetOffScreen(RAS_Rasterizer::OffScreenType type);
 	};
 
 	// All info used to compute the ray cast transform matrix.
 	struct RayCastTranform
 	{
 		/// The object scale.
-		MT_Vector3 scale;
+		mt::vec3 scale;
 		/// The original object matrix.
-		float *origmat;
+		mt::mat4 origmat;
 		/// The output matrix.
 		float *mat;
 	};
 
-	struct ScreenShaders
+	/// \section Interfaces used for frame buffer shaders.
+
+	struct OverrideShaderDrawFrameBufferInterface
 	{
-		DRWShadingGroup *normal;
-		DRWShadingGroup *anaglyph;
-		DRWShadingGroup *interlace;
-		DRWShadingGroup *vinterlace;
-	} m_screenShaders;
+		int colorTexLoc;
+	};
 
-	struct Matrices
+	struct OverrideShaderStereoStippleInterface
 	{
-		MT_Matrix4x4 view;
-		MT_Matrix4x4 viewinv;
-		MT_Matrix4x4 proj;
-		MT_Matrix4x4 projinv;
-		MT_Matrix4x4 pers;
-		MT_Matrix4x4 persinv;
-	} m_matrices;
+		int leftEyeTexLoc;
+		int rightEyeTexLoc;
+		int stippleIdLoc;
+	};
 
-	// We store each debug shape by scene.
-	std::map<SCA_IScene *, RAS_DebugDraw> m_debugDraws;
-
-	/* fogging vars */
-	bool m_fogenabled;
+	struct OverrideShaderStereoAnaglyph
+	{
+		int leftEyeTexLoc;
+		int rightEyeTexLoc;
+	};
 
 	double m_time;
-	MT_Vector3 m_ambient;
-	MT_Matrix4x4 m_viewmatrix;
-	MT_Matrix4x4 m_viewinvmatrix;
-	MT_Vector3 m_campos;
+	mt::vec3 m_ambient;
+	mt::mat4 m_viewmatrix;
+	mt::mat4 m_viewinvmatrix;
+	mt::vec3 m_campos;
 	bool m_camortho;
 	bool m_camnegscale;
 
@@ -299,27 +311,46 @@ private:
 	bool m_setfocallength;
 	int m_noOfScanlines;
 
+	ColorManagement m_colorManagement;
+
+	/* motion blur */
+	unsigned short m_motionblur;
+	float m_motionblurvalue;
+
 	/* Render tools */
 	void *m_clientobject;
 	void *m_auxilaryClientInfo;
+	std::vector<RAS_OpenGLLight *> m_lights;
 	int m_lastlightlayer;
 	bool m_lastlighting;
 	void *m_lastauxinfo;
 	unsigned int m_numgllights;
 
 	/// Class used to manage off screens used by the rasterizer.
-	FrameBuffers m_frameBuffers;
+	OffScreens m_offScreens;
 
 	DrawType m_drawingmode;
 	ShadowType m_shadowMode;
 
 	bool m_invertFrontFace;
-	bool m_last_frontface;
+
+	/// States to reduce OpenGL calls.
+	struct {
+		char frontFace;
+		char cullFace;
+		float polyOffset[2];
+	} m_state;
+
+	OverrideShaderType m_overrideShader;
 
 	std::unique_ptr<RAS_OpenGLRasterizer> m_impl;
+	std::unique_ptr<RAS_OpenGLDebugDraw> m_debugDrawImpl;
 
-	void InitScreenShaders();
-	void ExitScreenShaders();
+	/// Initialize custom shader interface containing uniform location.
+	void InitOverrideShadersInterface();
+
+	/// Return GPUShader coresponding to the override shader enumeration.
+	GPUShader *GetOverrideGPUShader(OverrideShaderType type);
 
 public:
 	RAS_Rasterizer();
@@ -408,37 +439,38 @@ public:
 	void DrawOverlayPlane();
 
 	/// Update dimensions of all off screens.
-	void UpdateFrameBuffers(RAS_ICanvas *canvas);
+	void UpdateOffScreens(RAS_ICanvas *canvas);
 
 	/** Return the corresponding off screen to off screen type.
 	 * \param type The off screen type to return.
 	 */
-	RAS_FrameBuffer *GetFrameBuffer(FrameBufferType type);
+	RAS_OffScreen *GetOffScreen(OffScreenType type);
 
 	/** Draw off screen without set viewport.
 	 * Used to copy the frame buffer object to another.
 	 * \param srcindex The input off screen index.
 	 * \param dstindex The output off screen index.
 	 */
-	void DrawFrameBuffer(RAS_FrameBuffer *srcfb, RAS_FrameBuffer *dstfb);
+	void DrawOffScreen(RAS_OffScreen *srcOffScreen, RAS_OffScreen *dstOffScreen);
 
 	/** Draw off screen at the given index to screen.
 	 * \param canvas The canvas containing the screen viewport.
 	 * \param index The off screen index to read from.
 	 */
-	void DrawFrameBuffer(RAS_ICanvas *canvas, RAS_FrameBuffer *frameBuffer);
+	void DrawOffScreenToScreen(RAS_ICanvas *canvas, RAS_OffScreen *offScreen);
 
 	/** Draw each stereo off screen to screen.
 	 * \param canvas The canvas containing the screen viewport.
 	 * \param lefteyeindex The left off screen index.
 	 * \param righteyeindex The right off screen index.
+	 * \param stereoMode The stereo category.
 	 */
-	void DrawStereoFrameBuffer(RAS_ICanvas *canvas, RAS_FrameBuffer *leftFb, RAS_FrameBuffer *rightFb);
+	void DrawStereoOffScreenToScreen(RAS_ICanvas *canvas, RAS_OffScreen *leftOffScreen, RAS_OffScreen *rightOffScreen, StereoMode stereoMode);
 
 	/**
 	 * GetRenderArea computes the render area from the 2d canvas.
 	 */
-	RAS_Rect GetRenderArea(RAS_ICanvas *canvas, StereoEye eye);
+	RAS_Rect GetRenderArea(RAS_ICanvas *canvas, StereoMode stereoMode, StereoEye eye);
 
 	// Stereo Functions
 	/**
@@ -446,11 +478,6 @@ public:
 	 */
 	void SetStereoMode(const StereoMode stereomode);
 
-	/**
-	 * Stereo can be used to query if the rasterizer is in stereo mode.
-	 * \return true if stereo mode is enabled.
-	 */
-	bool Stereo();
 	StereoMode GetStereoMode();
 
 	/**
@@ -471,20 +498,37 @@ public:
 	void SetFocalLength(const float focallength);
 	float GetFocalLength();
 
+	/**
+	 * Create a sync object
+	 * For use with offscreen render
+	 */
+	RAS_ISync *CreateSync(int type);
+
 	/// Render text mesh slot using BLF functions.
 	void IndexPrimitivesText(RAS_MeshSlot *ms);
- 
+
+	/* This one should become our final version, methinks. */
+	/**
+	 * Set the projection matrix for the rasterizer. This projects
+	 * from camera coordinates to window coordinates.
+	 * \param mat The projection matrix.
+	 */
+	void SetProjectionMatrix(const mt::mat4 &mat);
+
 	/// Get the modelview matrix according to the stereo settings.
-	MT_Matrix4x4 GetViewMatrix(StereoEye eye, const MT_Transform &camtrans, bool perspective);
+	mt::mat4 GetViewMatrix(StereoMode stereoMode, StereoEye eye, const mt::mat3x4 &camtrans, bool perspective);
 	/**
 	 * Sets the modelview matrix.
 	 */
-	void SetMatrix(const MT_Matrix4x4 &viewmat, const MT_Matrix4x4& projmat, const MT_Vector3 &pos, const MT_Vector3 &scale);
+	void SetViewMatrix(const mt::mat4 &viewmat, bool negscale);
+	void SetViewMatrix(const mt::mat4 &viewmat);
+	void SetViewMatrix(const mt::mat4 &viewmat, const mt::vec3& scale);
 
 	/**
 	 * Get/Set viewport area
 	 */
 	void SetViewport(int x, int y, int width, int height);
+	void GetViewport(int *rect);
 
 	/**
 	 * Set scissor mask
@@ -493,8 +537,13 @@ public:
 
 	/**
 	 */
-	const MT_Vector3& GetCameraPosition();
+	const mt::vec3& GetCameraPosition();
 	bool GetCameraOrtho();
+
+	/**
+	 * Fog
+	 */
+	void SetFog(short type, float start, float dist, float intensity, const mt::vec3& color);
 	
 	/**
 	 * \param drawingmode = RAS_WIREFRAME, RAS_SOLID, RAS_SHADOW or RAS_TEXTURED.
@@ -518,9 +567,9 @@ public:
 	void SetCullFace(bool enable);
 
 	/// Set and enable clip plane.
-	void EnableClipPlane(int numplanes);
+	void EnableClipPlane(unsigned short index, const mt::vec4& plane);
 	/// Disable clip plane
-	void DisableClipPlane(int numplanes);
+	void DisableClipPlane(unsigned short index);
 
 	/**
 	 * Sets wireframe mode.
@@ -532,6 +581,22 @@ public:
 	double GetTime();
 
 	/**
+	 * Generates a projection matrix from the specified frustum and stereomode.
+	 * \param eye The stereo eye.
+	 * \param stereoMode The stereo category.
+	 * \param focallength The stereo eye focal length.
+	 * \param left the left clipping plane
+	 * \param right the right clipping plane
+	 * \param bottom the bottom clipping plane
+	 * \param top the top clipping plane
+	 * \param frustnear the near clipping plane
+	 * \param frustfar the far clipping plane
+	 * \return a 4x4 matrix representing the projection transform.
+	 */
+	mt::mat4 GetFrustumMatrix(StereoMode stereoMode, StereoEye eye, float focallength,
+	        float left, float right, float bottom, float top, float frustnear, float frustfar);
+
+	/**
 	 * Generates a projection matrix from the specified frustum.
 	 * \param left the left clipping plane
 	 * \param right the right clipping plane
@@ -541,11 +606,8 @@ public:
 	 * \param frustfar the far clipping plane
 	 * \return a 4x4 matrix representing the projection transform.
 	 */
-	MT_Matrix4x4 GetFrustumMatrix(
-			StereoEye eye,
-	        float left, float right, float bottom, float top,
-	        float frustnear, float frustfar,
-	        float focallength = 0.0f, bool perspective = true);
+	mt::mat4 GetFrustumMatrix(float left, float right, float bottom, float top, float frustnear, float frustfar);
+
 
 	/**
 	 * Generates a orthographic projection matrix from the specified frustum.
@@ -557,37 +619,61 @@ public:
 	 * \param frustfar the far clipping plane
 	 * \return a 4x4 matrix representing the projection transform.
 	 */
-	MT_Matrix4x4 GetOrthoMatrix(
+	mt::mat4 GetOrthoMatrix(
 	        float left, float right, float bottom, float top,
 	        float frustnear, float frustfar);
 
-	void SetAmbientColor(const MT_Vector3& color);
+	/**
+	 * Sets the specular color component of the lighting equation.
+	 */
+	void SetSpecularity(float specX, float specY, float specZ, float specval);
+	
+	/**
+	 * Sets the specular exponent component of the lighting equation.
+	 */
+	void SetShinyness(float shiny);
+
+	/**
+	 * Sets the diffuse color component of the lighting equation.
+	 */
+	void SetDiffuse(float difX,float difY, float difZ, float diffuse);
+
+	/**
+	 * Sets the emissive color component of the lighting equation.
+	 */ 
+	void SetEmissive(float eX, float eY, float eZ, float e);
+	
+	void SetAmbientColor(const mt::vec3& color);
+	void SetAmbient(float factor);
 
 	/**
 	 * Sets a polygon offset.  z depth will be: z1 = mult*z0 + add
 	 */
-	void	SetPolygonOffset(float mult, float add);
+	void SetPolygonOffset(DrawType drawingMode, float mult, float add);
 
-	RAS_DebugDraw& GetDebugDraw(SCA_IScene *scene);
-	void FlushDebugDraw(SCA_IScene *scene, RAS_ICanvas *canvas);
+	const mt::mat4 &GetViewMatrix() const;
+	const mt::mat4 &GetViewInvMatrix() const;
 
-	const MT_Matrix4x4 &GetViewMatrix() const;
-	const MT_Matrix4x4 &GetViewInvMatrix() const;
-	const MT_Matrix4x4& GetProjMatrix() const;
-	const MT_Matrix4x4& GetProjInvMatrix() const;
-	const MT_Matrix4x4& GetPersMatrix() const;
-	const MT_Matrix4x4& GetPersInvMatrix() const;
+	void EnableMotionBlur(float motionblurvalue);
+	void DisableMotionBlur();
+	void SetMotionBlur(unsigned short state);
 
 	void SetAlphaBlend(int alphablend);
 	void SetFrontFace(bool ccw);
 
 	void SetInvertFrontFace(bool invert);
 
+	void SetColorManagment(ColorManagement colorManagement);
+
 	void SetAnisotropicFiltering(short level);
 	short GetAnisotropicFiltering();
 
 	void SetMipmapping(MipmapOption val);
 	MipmapOption GetMipmapping();
+
+	void SetOverrideShader(OverrideShaderType type);
+	OverrideShaderType GetOverrideShader();
+	void ActivateOverrideShaderInstancing(RAS_InstancingBuffer *buffer);
 
 	/// \see KX_RayCast
 	bool RayHit(KX_ClientObjectInfo *client, KX_RayCast *result, RayCastTranform *raytransform);
@@ -597,7 +683,9 @@ public:
 	/**
 	 * Render Tools
 	 */
-	void GetTransform(float *origmat, int objectdrawmode, float mat[16]);
+	void GetTransform(const mt::mat4& origmat, int objectdrawmode, float mat[16]);
+
+	void FlushDebug(RAS_ICanvas *canvas, RAS_DebugDraw *debugDraw);
 
 	void DisableForText();
 	/**
@@ -613,6 +701,32 @@ public:
 	void RenderText3D(
 	        int fontid, const std::string& text, int size, int dpi,
 	        const float color[4], const float mat[16], float aspect);
+
+	void EnableLights();
+	void DisableLights();
+	void ProcessLighting(bool uselights, const mt::mat3x4 &trans);
+
+	void PushMatrix();
+	void PopMatrix();
+	void MultMatrix(const float mat[16]);
+	void SetMatrixMode(MatrixMode mode);
+	void LoadMatrix(const float mat[16]);
+	void LoadIdentity();
+
+	RAS_ILightObject *CreateLight();
+
+	void AddLight(RAS_ILightObject *lightobject);
+
+	void RemoveLight(RAS_ILightObject *lightobject);
+
+	/** Set the current off screen depth to the global depth texture used by materials.
+	 * In case of mutlisample off screen a blit to RAS_OFFSCREEN_BLIT_DEPTH is procceed.
+	 */
+	void UpdateGlobalDepthTexture(RAS_OffScreen *offScreen);
+	/// Set the global depth texture to an empty texture.
+	void ResetGlobalDepthTexture();
+
+	void MotionBlur();
 
 	void SetClientObject(void *obj);
 

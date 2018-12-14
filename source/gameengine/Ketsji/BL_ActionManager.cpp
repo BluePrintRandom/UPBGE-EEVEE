@@ -25,13 +25,12 @@
  */
 
 #include "BL_Action.h"
+#include "BL_ActionData.h"
 #include "BL_ActionManager.h"
-#include "DNA_ID.h"
 
-#define IS_TAGGED(_id) ((_id) && (((ID *)_id)->tag & LIB_TAG_DOIT))
-
-BL_ActionManager::BL_ActionManager(class KX_GameObject *obj):
-	m_obj(obj)
+BL_ActionManager::BL_ActionManager(class KX_GameObject *obj) :
+	m_obj(obj),
+	m_suspended(false)
 {
 }
 
@@ -39,17 +38,18 @@ BL_ActionManager::~BL_ActionManager()
 {
 	BL_ActionMap::iterator it;
 
-	for (it = m_layers.begin(); it != m_layers.end(); it++)
+	for (it = m_layers.begin(); it != m_layers.end(); it++) {
 		delete it->second;
+	}
 
 	m_layers.clear();
 }
 
-BL_Action *BL_ActionManager::GetAction(short layer)
+BL_Action *BL_ActionManager::GetAction(short layer) const
 {
-	BL_ActionMap::iterator it = m_layers.find(layer);
+	BL_ActionMap::const_iterator it = m_layers.find(layer);
 
-	return (it != m_layers.end()) ? it->second : 0;
+	return (it != m_layers.end()) ? it->second : nullptr;
 }
 
 float BL_ActionManager::GetActionFrame(short layer)
@@ -69,34 +69,38 @@ void BL_ActionManager::SetActionFrame(short layer, float frame)
 {
 	BL_Action *action = GetAction(layer);
 
-	if (action) action->SetFrame(frame);
+	if (action) {
+		action->SetFrame(frame);
+	}
 }
 
-struct bAction *BL_ActionManager::GetCurrentAction(short layer)
+std::string BL_ActionManager::GetCurrentActionName(short layer) const
 {
 	BL_Action *action = GetAction(layer);
 
-	return action ? action->GetAction() : 0;
+	return action ? action->GetName() : "";
 }
 
 void BL_ActionManager::SetPlayMode(short layer, short mode)
 {
 	BL_Action *action = GetAction(layer);
 
-	if (action) action->SetPlayMode(mode);
+	if (action) {
+		action->SetPlayMode(mode);
+	}
 }
 
 bool BL_ActionManager::PlayAction(const std::string& name,
-								float start,
-								float end,
-								short layer,
-								short priority,
-								float blendin,
-								short play_mode,
-								float layer_weight,
-								short ipo_flags,
-								float playback_speed,
-								short blend_mode)
+                                  float start,
+                                  float end,
+                                  short layer,
+                                  short priority,
+                                  float blendin,
+                                  short play_mode,
+                                  float layer_weight,
+                                  short ipo_flags,
+                                  float playback_speed,
+                                  short blend_mode)
 {
 	// Only this method will create layer if non-existent
 	BL_Action *action = GetAction(layer);
@@ -106,7 +110,9 @@ bool BL_ActionManager::PlayAction(const std::string& name,
 	}
 
 	// Disable layer blending on the first layer
-	if (layer == 0) layer_weight = -1.f;
+	if (layer == 0) {
+		layer_weight = -1.f;
+	}
 
 	return action->Play(name, start, end, priority, blendin, play_mode, layer_weight, ipo_flags, playback_speed, blend_mode);
 }
@@ -121,15 +127,16 @@ void BL_ActionManager::StopAction(short layer)
 	}
 }
 
-void BL_ActionManager::RemoveTaggedActions()
+void BL_ActionManager::RemoveActions(const BL_Resource::Library& libraryId)
 {
-	for (BL_ActionMap::iterator it = m_layers.begin(); it != m_layers.end();) {
-		if (IS_TAGGED(it->second->GetAction())) {
+	for (BL_ActionMap::iterator it = m_layers.begin(); it != m_layers.end(); ) {
+		if (it->second->GetActionData()->Belong(libraryId)) {
 			delete it->second;
-			m_layers.erase(it++);
+			it = m_layers.erase(it);
 		}
-		else
+		else {
 			++it;
+		}
 	}
 }
 
@@ -138,6 +145,21 @@ bool BL_ActionManager::IsActionDone(short layer)
 	BL_Action *action = GetAction(layer);
 
 	return action ? action->IsDone() : true;
+}
+
+void BL_ActionManager::Suspend()
+{
+	m_suspended = true;
+}
+
+void BL_ActionManager::Resume()
+{
+	m_suspended = false;
+}
+
+bool BL_ActionManager::IsSuspended() const
+{
+	return m_suspended;
 }
 
 void BL_ActionManager::Update(float curtime, bool applyToObject)

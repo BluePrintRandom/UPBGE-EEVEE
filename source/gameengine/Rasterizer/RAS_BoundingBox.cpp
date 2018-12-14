@@ -26,12 +26,13 @@
 
 #include "RAS_BoundingBox.h"
 #include "RAS_BoundingBoxManager.h"
-#include <algorithm>
+
+#include "CM_List.h"
 
 RAS_BoundingBox::RAS_BoundingBox(RAS_BoundingBoxManager *manager)
 	:m_modified(false),
-	m_aabbMin(0.0f, 0.0f, 0.0f),
-	m_aabbMax(0.0f, 0.0f, 0.0f),
+	m_aabbMin(mt::zero3),
+	m_aabbMax(mt::zero3),
 	m_users(0),
 	m_manager(manager)
 {
@@ -52,7 +53,7 @@ RAS_BoundingBox *RAS_BoundingBox::GetReplica()
 
 void RAS_BoundingBox::ProcessReplica()
 {
-	m_users = 1;
+	m_users = 0;
 	m_manager->m_boundingBoxList.push_back(this);
 }
 
@@ -74,14 +75,13 @@ void RAS_BoundingBox::RemoveUser()
 	/* Some one was using this bounding box previously. Then remove it from the
 	 * active bounding box list. */
 	if (m_users == 0) {
-		RAS_BoundingBoxList::const_iterator it = std::find(m_manager->m_activeBoundingBoxList.begin(),
-														   m_manager->m_activeBoundingBoxList.end(), this);
-		m_manager->m_activeBoundingBoxList.erase(it);
+		CM_ListRemoveIfFound(m_manager->m_activeBoundingBoxList, this);
 	}
 }
 
 void RAS_BoundingBox::SetManager(RAS_BoundingBoxManager *manager)
 {
+	BLI_assert(m_manager);
 	m_manager = manager;
 }
 
@@ -95,27 +95,23 @@ void RAS_BoundingBox::ClearModified()
 	m_modified = false;
 }
 
-void RAS_BoundingBox::GetAabb(MT_Vector3& aabbMin, MT_Vector3& aabbMax) const
+void RAS_BoundingBox::GetAabb(mt::vec3& aabbMin, mt::vec3& aabbMax) const
 {
 	aabbMin = m_aabbMin;
 	aabbMax = m_aabbMax;
 }
 
-void RAS_BoundingBox::SetAabb(const MT_Vector3& aabbMin, const MT_Vector3& aabbMax)
+void RAS_BoundingBox::SetAabb(const mt::vec3& aabbMin, const mt::vec3& aabbMax)
 {
 	m_aabbMin = aabbMin;
 	m_aabbMax = aabbMax;
 	m_modified = true;
 }
 
-void RAS_BoundingBox::ExtendAabb(const MT_Vector3& aabbMin, const MT_Vector3& aabbMax)
+void RAS_BoundingBox::ExtendAabb(const mt::vec3& aabbMin, const mt::vec3& aabbMax)
 {
-	m_aabbMin.x() = std::min(m_aabbMin.x(), aabbMin.x());
-	m_aabbMin.y() = std::min(m_aabbMin.y(), aabbMin.y());
-	m_aabbMin.z() = std::min(m_aabbMin.z(), aabbMin.z());
-	m_aabbMax.x() = std::max(m_aabbMax.x(), aabbMax.x());
-	m_aabbMax.y() = std::max(m_aabbMax.y(), aabbMax.y());
-	m_aabbMax.z() = std::max(m_aabbMax.z(), aabbMax.z());
+	m_aabbMin = mt::vec3::Min(m_aabbMin, aabbMin);
+	m_aabbMax = mt::vec3::Max(m_aabbMax, aabbMax);
 	m_modified = true;
 }
 
@@ -129,10 +125,17 @@ void RAS_BoundingBox::Update(bool force)
 {
 }
 
-RAS_MeshBoundingBox::RAS_MeshBoundingBox(RAS_BoundingBoxManager *manager, const RAS_IDisplayArrayList displayArrayList)
-	:RAS_BoundingBox(manager),
-	m_displayArrayList(displayArrayList)
+RAS_MeshBoundingBox::RAS_MeshBoundingBox(RAS_BoundingBoxManager *manager, const RAS_DisplayArrayList& displayArrayList)
+	:RAS_BoundingBox(manager)
 {
+	for (RAS_DisplayArray *array : displayArrayList) {
+		m_slots.push_back({array, {RAS_DisplayArray::POSITION_MODIFIED, RAS_DisplayArray::NONE_MODIFIED},
+		                   mt::zero3, mt::zero3});
+	}
+
+	for (DisplayArraySlot& slot : m_slots) {
+		slot.m_displayArray->AddUpdateClient(&slot.m_arrayUpdateClient);
+	}
 }
 
 RAS_MeshBoundingBox::~RAS_MeshBoundingBox()
@@ -142,44 +145,45 @@ RAS_MeshBoundingBox::~RAS_MeshBoundingBox()
 RAS_BoundingBox *RAS_MeshBoundingBox::GetReplica()
 {
 	RAS_MeshBoundingBox *boundingBox = new RAS_MeshBoundingBox(*this);
+
 	boundingBox->m_users = 0;
+	for (DisplayArraySlot& slot : boundingBox->m_slots) {
+		slot.m_displayArray->AddUpdateClient(&slot.m_arrayUpdateClient);
+	}
+
 	return boundingBox;
 }
 
 void RAS_MeshBoundingBox::Update(bool force)
 {
 	bool modified = false;
-	// Detect if a display array was modified.
-	for (RAS_IDisplayArrayList::iterator it = m_displayArrayList.begin(), end = m_displayArrayList.end(); it != end; ++it) {
-		if ((*it)->GetModifiedFlag() & RAS_IDisplayArray::AABB_MODIFIED) {
-			modified = true;
-			break;
+	for (DisplayArraySlot& slot : m_slots) {
+		RAS_DisplayArray *array = slot.m_displayArray;
+		// Select modified display array or all if the update is forced.
+		if (!slot.m_arrayUpdateClient.GetInvalidAndClear() && !force) {
+			continue;
+		}
+		modified = true;
+
+		slot.m_aabbMin = mt::vec3(FLT_MAX);
+		slot.m_aabbMax = mt::vec3(-FLT_MAX);
+
+		// For each vertex.
+		for (unsigned int i = 0, size = array->GetVertexCount(); i < size; ++i) {
+			const mt::vec3 vertPos(array->GetPosition(i));
+
+			slot.m_aabbMin = mt::vec3::Min(slot.m_aabbMin, vertPos);
+			slot.m_aabbMax = mt::vec3::Max(slot.m_aabbMax, vertPos);
 		}
 	}
 
-	if (!modified && !force) {
-		return;
-	}
+	if (modified) {
+		m_aabbMin = mt::vec3(FLT_MAX);
+		m_aabbMax = mt::vec3(-FLT_MAX);
 
-	for (unsigned short i = 0, size = m_displayArrayList.size(); i < size; ++i) {
-		RAS_IDisplayArray *displayArray = m_displayArrayList[i];
-		// For each vertex.
-		for (unsigned int j = 0, size = displayArray->GetVertexCount(); j < size; ++j) {
-			RAS_ITexVert *vert = displayArray->GetVertex(j);
-			const MT_Vector3 vertPos = vert->xyz();
-
-			// Initialize the AABB to the first vertex position.
-			if (j == 0 && i == 0) {
-				m_aabbMin = m_aabbMax = vertPos;
-				continue;
-			}
-
-			m_aabbMin.x() = std::min(m_aabbMin.x(), vertPos.x());
-			m_aabbMin.y() = std::min(m_aabbMin.y(), vertPos.y());
-			m_aabbMin.z() = std::min(m_aabbMin.z(), vertPos.z());
-			m_aabbMax.x() = std::max(m_aabbMax.x(), vertPos.x());
-			m_aabbMax.y() = std::max(m_aabbMax.y(), vertPos.y());
-			m_aabbMax.z() = std::max(m_aabbMax.z(), vertPos.z());
+		for (const DisplayArraySlot& slot : m_slots) {
+			m_aabbMin = mt::vec3::Min(m_aabbMin, slot.m_aabbMin);
+			m_aabbMax = mt::vec3::Max(m_aabbMax, slot.m_aabbMax);
 		}
 	}
 

@@ -46,13 +46,12 @@ class KX_RayCast;
  *
  * - extend the valid modes?
  * - */
-class KX_MouseFocusSensor : public SCA_MouseSensor
+class KX_MouseFocusSensor : public SCA_MouseSensor, public mt::SimdClassAllocator
 {
 
 	Py_Header
 	
- public:
-	
+public:
 	KX_MouseFocusSensor(class SCA_MouseManager* eventmgr,
 						int startx,
 						int starty,
@@ -68,8 +67,8 @@ class KX_MouseFocusSensor : public SCA_MouseSensor
 						SCA_IObject* gameobj);
 
 	virtual ~KX_MouseFocusSensor() { }
-	virtual CValue* GetReplica() {
-		CValue* replica = new KX_MouseFocusSensor(*this);
+	virtual EXP_Value* GetReplica() {
+		EXP_Value* replica = new KX_MouseFocusSensor(*this);
 		// this will copy properties and so on...
 		replica->ProcessReplica();
 		return replica;
@@ -98,11 +97,11 @@ class KX_MouseFocusSensor : public SCA_MouseSensor
 	/// \see KX_RayCast
 	bool NeedRayCast(KX_ClientObjectInfo *client, void *UNUSED(data));
 	
-	const MT_Vector3& RaySource() const;
-	const MT_Vector3& RayTarget() const;
-	const MT_Vector3& HitPosition() const;
-	const MT_Vector3& HitNormal() const;
-	const MT_Vector2& HitUV() const;
+	const mt::vec3& RaySource() const;
+	const mt::vec3& RayTarget() const;
+	const mt::vec3& HitPosition() const;
+	const mt::vec3& HitNormal() const;
+	const mt::vec2& HitUV() const;
 	
 #ifdef WITH_PYTHON
 
@@ -111,13 +110,13 @@ class KX_MouseFocusSensor : public SCA_MouseSensor
 	/* --------------------------------------------------------------------- */
 
 	/* attributes */
-	static PyObject*	pyattr_get_ray_source(PyObjectPlus *self_v, const KX_PYATTRIBUTE_DEF *attrdef);
-	static PyObject*	pyattr_get_ray_target(PyObjectPlus *self_v, const KX_PYATTRIBUTE_DEF *attrdef);
-	static PyObject*	pyattr_get_ray_direction(PyObjectPlus *self_v, const KX_PYATTRIBUTE_DEF *attrdef);
-	static PyObject*	pyattr_get_hit_object(PyObjectPlus *self_v, const KX_PYATTRIBUTE_DEF *attrdef);
-	static PyObject*	pyattr_get_hit_position(PyObjectPlus *self_v, const KX_PYATTRIBUTE_DEF *attrdef);
-	static PyObject*	pyattr_get_hit_normal(PyObjectPlus *self_v, const KX_PYATTRIBUTE_DEF *attrdef);
-	static PyObject*	pyattr_get_hit_uv(PyObjectPlus *self_v, const KX_PYATTRIBUTE_DEF *attrdef);
+	static PyObject*	pyattr_get_ray_source(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef);
+	static PyObject*	pyattr_get_ray_target(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef);
+	static PyObject*	pyattr_get_ray_direction(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef);
+	static PyObject*	pyattr_get_hit_object(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef);
+	static PyObject*	pyattr_get_hit_position(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef);
+	static PyObject*	pyattr_get_hit_normal(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef);
+	static PyObject*	pyattr_get_hit_uv(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef);
 		
 #endif  /* WITH_PYTHON */
 
@@ -176,27 +175,27 @@ class KX_MouseFocusSensor : public SCA_MouseSensor
 	/**
 	 * (in game world coordinates) the place where the object was hit.
 	 */
-	MT_Vector3        m_hitPosition;
+	mt::vec3        m_hitPosition;
 
 	/**
 	 * (in game world coordinates) the position to which to shoot the ray.
 	 */
-	MT_Vector3        m_prevTargetPoint;
+	mt::vec3        m_prevTargetPoint;
 
 	/**
 	 * (in game world coordinates) the position from which to shoot the ray.
 	 */
-	MT_Vector3        m_prevSourcePoint;
+	mt::vec3        m_prevSourcePoint;
 
 	/**
 	 * (in game world coordinates) the face normal of the vertex where
 	 * the object was hit.  */
-	MT_Vector3       m_hitNormal;
+	mt::vec3       m_hitNormal;
 
 	/**
 	 * UV texture coordinate of the hit point if any, (0,0) otherwise
 	 */
-	MT_Vector2       m_hitUV;
+	mt::vec2       m_hitUV;
 
 	/**
 	 * The KX scene that holds the camera. The camera position

@@ -24,126 +24,295 @@
  *  \ingroup bgerast
  */
 
-#ifndef __RAS_DISPLAY_ARRAY_H__
-#define __RAS_DISPLAY_ARRAY_H__
+#ifndef __RAS_IDISPLAY_ARRAY_H__
+#define __RAS_IDISPLAY_ARRAY_H__
 
-#include "RAS_IDisplayArray.h"
+#include "RAS_DisplayArrayStorage.h"
+#include "RAS_DisplayArrayLayout.h"
+#include "RAS_VertexInfo.h"
 
-template <class Vertex>
+#include "CM_Update.h"
+
+#include "BLI_math_vector.h"
+
+#include "mathfu.h"
+
+#include <vector>
+#include <algorithm>
+#include <memory>
+
 class RAS_BatchDisplayArray;
+class RAS_StorageVbo;
 
-/// An array with data used for OpenGL drawing.
-template <class Vertex>
-class RAS_DisplayArray : public virtual RAS_IDisplayArray
+class RAS_DisplayArray : public CM_UpdateServer<RAS_DisplayArray>
 {
-friend class RAS_BatchDisplayArray<Vertex>;
-
-protected:
-	std::vector<Vertex> m_vertexes;
-
-	RAS_DisplayArray(const RAS_DisplayArray& other)
-		:RAS_IDisplayArray(other),
-		m_vertexes(other.m_vertexes)
-	{
-	}
+	friend RAS_BatchDisplayArray;
+	friend RAS_StorageVbo;
 
 public:
-	RAS_DisplayArray(PrimitiveType type, const RAS_TexVertFormat& format)
-		:RAS_IDisplayArray(type, format)
+	enum PrimitiveType {
+		TRIANGLES,
+		LINES,
+	};
+
+	enum Type {
+		NORMAL,
+		BATCHING
+	};
+
+	/// Modification categories.
+	enum {
+		NONE_MODIFIED = 0,
+		POSITION_MODIFIED = 1 << 0, // Vertex position modified.
+		NORMAL_MODIFIED = 1 << 1, // Vertex normal modified.
+		UVS_MODIFIED = 1 << 2, // Vertex UVs modified.
+		COLORS_MODIFIED = 1 << 3, // Vertex colors modified.
+		TANGENT_MODIFIED = 1 << 4, // Vertex tangent modified.
+		SIZE_MODIFIED = 1 << 5, // Vertex and index array changed of size.
+		STORAGE_INVALID = 1 << 6, // Storage not yet created.
+		AABB_MODIFIED = POSITION_MODIFIED,
+		MESH_MODIFIED = POSITION_MODIFIED | NORMAL_MODIFIED | UVS_MODIFIED |
+						COLORS_MODIFIED | TANGENT_MODIFIED,
+		ANY_MODIFIED = MESH_MODIFIED | SIZE_MODIFIED | STORAGE_INVALID
+	};
+
+	/// Struct used to pass the vertex format to functions.
+	struct Format
 	{
+		uint8_t uvSize;
+		uint8_t colorSize;
+
+		Format() = default;
+
+		/// Operators used to compare the contents (uv size, color size, ...) of two vertex formats.
+		inline bool operator== (const Format& other) const
+		{
+			return (uvSize == other.uvSize && colorSize == other.colorSize);
+		}
+
+		inline bool operator!= (const Format& other) const
+		{
+			return !(*this == other);
+		}
+	};
+
+protected:
+	/// The display array primitive type.
+	PrimitiveType m_type;
+	/// The vertex format used.
+	Format m_format;
+
+	struct VertexData
+	{
+		std::vector<mt::vec3_packed> positions;
+		std::vector<mt::vec3_packed> normals;
+		std::vector<mt::vec4_packed> tangents;
+		std::vector<mt::vec2_packed> uvs[RAS_Texture::MaxUnits];
+
+		union Color
+		{
+			unsigned int m_flat;
+			unsigned char m_array[4];
+		};
+
+		std::vector<Color> colors[RAS_Texture::MaxUnits];
+	} m_vertexData;
+
+	/// The vertex infos unused for rendering, e.g original or soft body index, flag.
+	std::vector<RAS_VertexInfo> m_vertexInfos;
+	/// The indices used for rendering.
+	std::vector<unsigned int> m_primitiveIndices;
+	/// The indices of the original triangle independently of the primitive type.
+	std::vector<unsigned int> m_triangleIndices;
+
+	/// Maximum original vertex index.
+	unsigned int m_maxOrigIndex;
+
+	/** Polygon centers cache used to sort polygons depending on depth.
+	 * This list is stored here because we sort per array not per entire mesh.
+	 */
+	std::vector<mt::vec3, mt::simd_allocator<mt::vec3> > m_polygonCenters;
+
+	/// The OpenGL data storage used for rendering.
+	RAS_DisplayArrayStorage m_storage;
+
+public:
+	RAS_DisplayArray(PrimitiveType type, const Format& format);
+	RAS_DisplayArray(const RAS_DisplayArray& other);
+	~RAS_DisplayArray();
+
+	inline mt::vec3_packed& GetPosition(const unsigned int index)
+	{
+		return m_vertexData.positions[index];
 	}
 
-
-	virtual ~RAS_DisplayArray()
+	inline mt::vec3_packed& GetNormal(const unsigned int index)
 	{
+		return m_vertexData.normals[index];
 	}
 
-	virtual RAS_IDisplayArray *GetReplica()
+	inline mt::vec4_packed& GetTangent(const unsigned int index)
 	{
-		RAS_DisplayArray<Vertex> *replica = new RAS_DisplayArray<Vertex>(*this);
-		replica->UpdateCache();
-
-		return replica;
+		return m_vertexData.tangents[index];
 	}
 
-	virtual unsigned int GetVertexMemorySize() const
+	inline mt::vec2_packed& GetUv(const unsigned int index, const unsigned short layer)
 	{
-		return sizeof(Vertex);
+		return m_vertexData.uvs[layer][index];
 	}
 
-	virtual intptr_t GetVertexXYZOffset() const
+	inline unsigned char(&GetColor(const unsigned int index, const unsigned short layer))[4]
 	{
-		return offsetof(Vertex, m_localxyz);
+		return m_vertexData.colors[layer][index].m_array;
 	}
 
-	virtual intptr_t GetVertexNormalOffset() const
+	inline unsigned int& GetRawColor(const unsigned int index, const unsigned short layer)
 	{
-		return offsetof(Vertex, m_normal);
+		return m_vertexData.colors[layer][index].m_flat;
 	}
 
-	virtual intptr_t GetVertexTangentOffset() const
+	inline void SetPosition(const unsigned int index, const mt::vec3_packed& value)
 	{
-		return offsetof(Vertex, m_tangent);
+		m_vertexData.positions[index] = value;
 	}
 
-	virtual intptr_t GetVertexUVOffset() const
+	inline void SetPosition(const unsigned int index, const mt::vec3& value)
 	{
-		return offsetof(Vertex, m_uvs);
+		m_vertexData.positions[index] = value;
 	}
 
-	virtual intptr_t GetVertexColorOffset() const
+	inline void SetNormal(const unsigned int index, const mt::vec3_packed& value)
 	{
-		return offsetof(Vertex, m_rgba);
+		m_vertexData.normals[index] = value;
 	}
 
-	virtual unsigned short GetVertexUvSize() const
+	inline void SetNormal(const unsigned int index, const mt::vec3& value)
 	{
-		return Vertex::UvSize;
+		m_vertexData.normals[index] = value;
+	}
+	
+	inline void SetTangent(const unsigned int index, const mt::vec4_packed& value)
+	{
+		m_vertexData.tangents[index] = value;
 	}
 
-	virtual unsigned short GetVertexColorSize() const
+	inline void SetTangent(const unsigned int index, const mt::vec4& value)
 	{
-		return Vertex::ColorSize;
+		m_vertexData.tangents[index] = value;
 	}
 
-	virtual RAS_ITexVert *GetVertexNoCache(const unsigned int index) const
+	inline void SetUv(const unsigned int index, const unsigned short layer, const mt::vec2_packed& value)
 	{
-		return (RAS_ITexVert *)&m_vertexes[index];
+		m_vertexData.uvs[layer][index] = value;
 	}
 
-	virtual const RAS_ITexVert *GetVertexPointer() const
+	inline void SetUv(const unsigned int index, const unsigned short layer, const mt::vec2& value)
 	{
-		return (RAS_ITexVert *)m_vertexes.data();
+		m_vertexData.uvs[layer][index] = value;
 	}
 
-	virtual void AddVertex(RAS_ITexVert *vert)
+	inline void SetColor(const unsigned int index, const unsigned short layer, const unsigned char value[4])
 	{
-		m_vertexes.push_back(*((Vertex *)vert));
+		VertexData::Color color;
+		copy_v4_v4_uchar(color.m_array, value);
+		m_vertexData.colors[layer][index] = color;
 	}
 
-	virtual unsigned int GetVertexCount() const
+	inline void SetColor(const unsigned int index, const unsigned short layer, const unsigned int value)
 	{
-		return m_vertexes.size();
+		m_vertexData.colors[layer][index].m_flat = value;
 	}
 
-	virtual RAS_ITexVert *CreateVertex(
-				const MT_Vector3& xyz,
-				const MT_Vector2 * const uvs,
-				const MT_Vector4& tangent,
-				const unsigned int *rgba,
-				const MT_Vector3& normal)
+	inline void SetColor(const unsigned int index, const unsigned short layer, const mt::vec4& col)
 	{
-		return new Vertex(xyz, uvs, tangent, rgba, normal);
-	}
-
-	virtual void UpdateCache()
-	{
-		const unsigned int size = GetVertexCount();
-		m_vertexPtrs.resize(size);
-		for (unsigned int i = 0; i < size; ++i) {
-			m_vertexPtrs[i] = (RAS_ITexVert *)&m_vertexes[i];
+		VertexData::Color& color = m_vertexData.colors[layer][index];
+		for (unsigned short i = 0; i < 4; ++i) {
+			color.m_array[i] = (unsigned char)(col[i] * 255.0f);
 		}
 	}
+
+	inline unsigned int GetPrimitiveIndex(const unsigned int index) const
+	{
+		return m_primitiveIndices[index];
+	}
+
+	inline unsigned int GetTriangleIndex(const unsigned int index) const
+	{
+		return m_triangleIndices[index];
+	}
+
+	inline const RAS_VertexInfo& GetVertexInfo(const unsigned int index) const
+	{
+		return m_vertexInfos[index];
+	}
+
+	inline RAS_VertexInfo& GetVertexInfo(const unsigned int index)
+	{
+		return m_vertexInfos[index];
+	}
+
+	unsigned int AddVertex(const mt::vec3_packed& pos, const mt::vec3_packed& nor, const mt::vec4_packed& tan,
+			mt::vec2_packed uvs[RAS_Texture::MaxUnits], unsigned int colors[RAS_Texture::MaxUnits], unsigned int origIndex, uint8_t flag);
+
+	inline void AddPrimitiveIndex(const unsigned int index)
+	{
+		m_primitiveIndices.push_back(index);
+	}
+
+	inline void AddTriangleIndex(const unsigned int origIndex)
+	{
+		m_triangleIndices.push_back(origIndex);
+	}
+
+	void Clear();
+
+	inline unsigned int GetVertexCount() const
+	{
+		return m_vertexData.positions.size();
+	}
+
+	inline unsigned int GetPrimitiveIndexCount() const
+	{
+		return m_primitiveIndices.size();
+	}
+
+	inline unsigned int GetTriangleIndexCount() const
+	{
+		return m_triangleIndices.size();
+	}
+
+	inline unsigned int GetMaxOrigIndex() const
+	{
+		return m_maxOrigIndex;
+	}
+
+	void SortPolygons(const mt::mat3x4& transform, unsigned int *indexmap);
+	void InvalidatePolygonCenters();
+
+	/** Copy vertex data from an other display array. Different vertex type is allowed.
+	 * \param other The other display array to copy from.
+	 * \param flag The flag coresponding to datas to copy.
+	 */
+	void UpdateFrom(RAS_DisplayArray *other, int flag);
+
+	/// Return the primitive type used for indices.
+	PrimitiveType GetPrimitiveType() const;
+	/// Return the primitive type used for indices in OpenGL value.
+	int GetOpenGLPrimitiveType() const;
+
+	/// Return the vertex format used.
+	const Format& GetFormat() const;
+
+	/// Return the vertex memory format used.
+	RAS_DisplayArrayLayout GetLayout() const;
+
+	/// Return the type of the display array.
+	virtual Type GetType() const;
+
+	RAS_DisplayArrayStorage& GetStorage();
+	void ConstructStorage();
 };
 
-#endif  // __RAS_DISPLAY_ARRAY_H__
+using RAS_DisplayArrayList = std::vector<RAS_DisplayArray *>;
+
+#endif  // __RAS_IDISPLAY_ARRAY_H__

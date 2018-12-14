@@ -47,10 +47,13 @@ private:
 	class KX_GameObject* m_obj;
 	BL_ActionMap 		 m_layers;
 
+	/// Suspend action update?
+	bool m_suspended;
+
 	/**
 	 * Check if an action exists
 	 */
-	BL_Action* GetAction(short layer);
+	BL_Action* GetAction(short layer) const;
 
 public:
 	BL_ActionManager(class KX_GameObject* obj);
@@ -85,7 +88,7 @@ public:
 	/**
 	 * Gets the currently running action on the given layer
 	 */
-	struct bAction *GetCurrentAction(short layer);
+	std::string GetCurrentActionName(short layer) const;
 
 	/**
 	 * Sets play mode of the action on the given layer
@@ -97,15 +100,16 @@ public:
 	 */
 	void StopAction(short layer);
 
-	/**
-	 * Remove playing tagged actions.
-	 */
-	void RemoveTaggedActions();
+	void RemoveActions(const BL_Resource::Library& libraryId);
 
 	/**
 	 * Check if an action has finished playing
 	 */
 	bool IsActionDone(short layer);
+
+	void Suspend();
+	void Resume();
+	bool IsSuspended() const;
 
 	/**
 	 * Update any running actions

@@ -123,7 +123,7 @@ typedef struct {
 /** \name Utility helper functions
  * \{ */
 
-static PyObject *bvhtree_CreatePyObject(
+PyObject *bvhtree_CreatePyObject(
         BVHTree *tree, float epsilon,
 
         float (*coords)[3], unsigned int coords_len,

@@ -56,28 +56,15 @@ protected:
 	 * here? It doesn't really have a function here. */
 	RAS_CameraData	m_camdata;
 
-	// Never used, I think...
-//	void MoveTo(const MT_Vector3& movevec)
-//	{
-#if 0
-		MT_Transform camtrans;
-		camtrans.invert(m_trans1);
-		MT_Matrix3x3 camorient = camtrans.getBasis();
-		camtrans.translate(camorient.inverse()*movevec);
-		m_trans1.invert(camtrans);
-#endif
-//	}
-
 	/**
 	 * Storage for the projection matrix that is passed to the
 	 * rasterizer. */
-	MT_Matrix4x4 m_projection_matrix;
-	//MT_Matrix4x4 m_projection_matrix1;
+	mt::mat4 m_projection_matrix;
 
 	/**
 	 * Storage for the modelview matrix that is passed to the
 	 * rasterizer. */
-	MT_Matrix4x4 m_modelview_matrix;
+	mt::mat4 m_modelview_matrix;
 
 	/**
 	 * true if the view frustum (modelview/projection matrix)
@@ -93,7 +80,7 @@ protected:
 	/**
 	 * View Frustum clip planes.
 	 */
-	MT_Vector4   m_planes[6];
+	mt::vec4   m_planes[6];
 	
 	/**
 	 * This camera is frustum culling.
@@ -106,14 +93,11 @@ protected:
 	 */
 	bool         m_set_projection_matrix;
 
-	/**
-	 * whether the camera should delete the node itself (only for shadow camera)
-	 */
-	bool         m_delete_node;
-
-
 	/** Distance factor for level of detail*/
 	float m_lodDistanceFactor;
+
+	/// Enable object activity culling for this camera.
+	bool m_activityCulling;
 
 	/**
 	 * Show Debug Camera Frustum?
@@ -128,30 +112,30 @@ public:
 
 	enum { INSIDE, INTERSECT, OUTSIDE };
 
-	KX_Camera(void* sgReplicationInfo,SG_Callbacks callbacks,const RAS_CameraData& camdata, bool frustum_culling = true, bool delete_node = false);
+	KX_Camera(void* sgReplicationInfo,SG_Callbacks callbacks,const RAS_CameraData& camdata, bool frustum_culling = true);
 	virtual ~KX_Camera();
-	
+
 	/** 
-	 * Inherited from CValue -- return a new copy of this
+	 * Inherited from EXP_Value -- return a new copy of this
 	 * instance allocated on the heap. Ownership of the new 
 	 * object belongs with the caller.
 	 */
-	virtual	CValue*
+	virtual	EXP_Value*
 	GetReplica(
 	);
 	virtual void ProcessReplica();
 
-	MT_Transform		GetWorldToCamera() const;
-	MT_Transform		GetCameraToWorld() const;
+	mt::mat3x4		GetWorldToCamera() const;
+	mt::mat3x4		GetCameraToWorld() const;
 
 	/** Sets the projection matrix that is used by the rasterizer. */
-	void				SetProjectionMatrix(const MT_Matrix4x4 & mat);
+	void				SetProjectionMatrix(const mt::mat4 & mat);
 
 	/** Sets the modelview matrix that is used by the rasterizer. */
-	void				SetModelviewMatrix(const MT_Matrix4x4 & mat);
+	void				SetModelviewMatrix(const mt::mat4 & mat);
 		
 	/** Gets the projection matrix that is used by the rasterizer. */
-	const MT_Matrix4x4&		GetProjectionMatrix() const;
+	const mt::mat4&		GetProjectionMatrix() const;
 	
 	/** returns true if this camera has been set a projection matrix. */
 	bool				hasValidProjectionMatrix() const;
@@ -165,7 +149,7 @@ public:
 	/** Gets the modelview matrix that is used by the rasterizer. 
 	 *  \warning If the Camera is a dynamic object then this method may return garbage.  Use GetWorldToCamera() instead.
 	 */
-	const MT_Matrix4x4&		GetModelviewMatrix() const;
+	const mt::mat4&		GetModelviewMatrix() const;
 
 	/** Gets the aperture. */
 	float				GetLens() const;
@@ -187,6 +171,7 @@ public:
 	float				GetCameraFar() const;
 	/** Gets the focal length (only used for stereo rendering) */
 	float				GetFocalLength() const;
+	float GetZoom() const;
 	/** Gets all camera data. */
 	RAS_CameraData*		GetCameraData();
 
@@ -198,6 +183,9 @@ public:
 	float GetLodDistanceFactor() const;
 	/** Set level of detail distance factor */
 	void SetLodDistanceFactor(float lodfactor);
+
+	bool GetActivityCulling() const;
+	void SetActivityCulling(bool enable);
 
 	const SG_Frustum& GetFrustum();
 
@@ -244,51 +232,51 @@ public:
 	virtual int GetGameObjectType() const { return OBJ_CAMERA; }
 
 #ifdef WITH_PYTHON
-	KX_PYMETHOD_DOC_VARARGS(KX_Camera, sphereInsideFrustum);
-	KX_PYMETHOD_DOC_O(KX_Camera, boxInsideFrustum);
-	KX_PYMETHOD_DOC_O(KX_Camera, pointInsideFrustum);
+	EXP_PYMETHOD_DOC_VARARGS(KX_Camera, sphereInsideFrustum);
+	EXP_PYMETHOD_DOC_O(KX_Camera, boxInsideFrustum);
+	EXP_PYMETHOD_DOC_O(KX_Camera, pointInsideFrustum);
 	
-	KX_PYMETHOD_DOC_NOARGS(KX_Camera, getCameraToWorld);
-	KX_PYMETHOD_DOC_NOARGS(KX_Camera, getWorldToCamera);
+	EXP_PYMETHOD_DOC_NOARGS(KX_Camera, getCameraToWorld);
+	EXP_PYMETHOD_DOC_NOARGS(KX_Camera, getWorldToCamera);
 	
-	KX_PYMETHOD_DOC_VARARGS(KX_Camera, setViewport);
-	KX_PYMETHOD_DOC_NOARGS(KX_Camera, setOnTop);
+	EXP_PYMETHOD_DOC_VARARGS(KX_Camera, setViewport);
+	EXP_PYMETHOD_DOC_NOARGS(KX_Camera, setOnTop);
 
-	KX_PYMETHOD_DOC_O(KX_Camera, getScreenPosition);
-	KX_PYMETHOD_DOC_VARARGS(KX_Camera, getScreenVect);
-	KX_PYMETHOD_DOC_VARARGS(KX_Camera, getScreenRay);
+	EXP_PYMETHOD_DOC_O(KX_Camera, getScreenPosition);
+	EXP_PYMETHOD_DOC_VARARGS(KX_Camera, getScreenVect);
+	EXP_PYMETHOD_DOC_VARARGS(KX_Camera, getScreenRay);
 	
-	static PyObject*	pyattr_get_perspective(PyObjectPlus *self_v, const KX_PYATTRIBUTE_DEF *attrdef);
-	static int			pyattr_set_perspective(PyObjectPlus *self_v, const KX_PYATTRIBUTE_DEF *attrdef, PyObject *value);
+	static PyObject*	pyattr_get_perspective(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef);
+	static int			pyattr_set_perspective(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef, PyObject *value);
 
-	static PyObject*	pyattr_get_lens(PyObjectPlus *self_v, const KX_PYATTRIBUTE_DEF *attrdef);
-	static int			pyattr_set_lens(PyObjectPlus *self_v, const KX_PYATTRIBUTE_DEF *attrdef, PyObject *value);
-	static PyObject*	pyattr_get_fov(PyObjectPlus *self_v, const KX_PYATTRIBUTE_DEF *attrdef);
-	static int			pyattr_set_fov(PyObjectPlus *self_v, const KX_PYATTRIBUTE_DEF *attrdef, PyObject *value);
-	static PyObject*	pyattr_get_ortho_scale(PyObjectPlus *self_v, const KX_PYATTRIBUTE_DEF *attrdef);
-	static int			pyattr_set_ortho_scale(PyObjectPlus *self_v, const KX_PYATTRIBUTE_DEF *attrdef, PyObject *value);
-	static PyObject*	pyattr_get_near(PyObjectPlus *self_v, const KX_PYATTRIBUTE_DEF *attrdef);
-	static int			pyattr_set_near(PyObjectPlus *self_v, const KX_PYATTRIBUTE_DEF *attrdef, PyObject *value);
-	static PyObject*	pyattr_get_far(PyObjectPlus *self_v, const KX_PYATTRIBUTE_DEF *attrdef);
-	static int			pyattr_set_far(PyObjectPlus *self_v, const KX_PYATTRIBUTE_DEF *attrdef, PyObject *value);
-	static PyObject*	pyattr_get_shift_x(PyObjectPlus *self_v, const KX_PYATTRIBUTE_DEF *attrdef);
-	static int			pyattr_set_shift_x(PyObjectPlus *self_v, const KX_PYATTRIBUTE_DEF *attrdef, PyObject *value);
-	static PyObject*	pyattr_get_shift_y(PyObjectPlus *self_v, const KX_PYATTRIBUTE_DEF *attrdef);
-	static int			pyattr_set_shift_y(PyObjectPlus *self_v, const KX_PYATTRIBUTE_DEF *attrdef, PyObject *value);
+	static PyObject*	pyattr_get_lens(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef);
+	static int			pyattr_set_lens(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef, PyObject *value);
+	static PyObject*	pyattr_get_fov(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef);
+	static int			pyattr_set_fov(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef, PyObject *value);
+	static PyObject*	pyattr_get_ortho_scale(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef);
+	static int			pyattr_set_ortho_scale(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef, PyObject *value);
+	static PyObject*	pyattr_get_near(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef);
+	static int			pyattr_set_near(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef, PyObject *value);
+	static PyObject*	pyattr_get_far(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef);
+	static int			pyattr_set_far(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef, PyObject *value);
+	static PyObject*	pyattr_get_shift_x(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef);
+	static int			pyattr_set_shift_x(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef, PyObject *value);
+	static PyObject*	pyattr_get_shift_y(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef);
+	static int			pyattr_set_shift_y(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef, PyObject *value);
 
-	static PyObject*	pyattr_get_use_viewport(PyObjectPlus *self_v, const KX_PYATTRIBUTE_DEF *attrdef);
-	static int			pyattr_set_use_viewport(PyObjectPlus *self_v, const KX_PYATTRIBUTE_DEF *attrdef, PyObject *value);
+	static PyObject*	pyattr_get_use_viewport(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef);
+	static int			pyattr_set_use_viewport(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef, PyObject *value);
 	
-	static PyObject*	pyattr_get_projection_matrix(PyObjectPlus *self_v, const KX_PYATTRIBUTE_DEF *attrdef);
-	static int			pyattr_set_projection_matrix(PyObjectPlus *self_v, const KX_PYATTRIBUTE_DEF *attrdef, PyObject *value);
+	static PyObject*	pyattr_get_projection_matrix(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef);
+	static int			pyattr_set_projection_matrix(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef, PyObject *value);
 	
-	static PyObject*	pyattr_get_modelview_matrix(PyObjectPlus *self_v, const KX_PYATTRIBUTE_DEF *attrdef);
-	static PyObject*	pyattr_get_camera_to_world(PyObjectPlus *self_v, const KX_PYATTRIBUTE_DEF *attrdef);
-	static PyObject*	pyattr_get_world_to_camera(PyObjectPlus *self_v, const KX_PYATTRIBUTE_DEF *attrdef);
+	static PyObject*	pyattr_get_modelview_matrix(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef);
+	static PyObject*	pyattr_get_camera_to_world(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef);
+	static PyObject*	pyattr_get_world_to_camera(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef);
 	
-	static PyObject*	pyattr_get_INSIDE(PyObjectPlus *self_v, const KX_PYATTRIBUTE_DEF *attrdef);
-	static PyObject*	pyattr_get_OUTSIDE(PyObjectPlus *self_v, const KX_PYATTRIBUTE_DEF *attrdef);
-	static PyObject*	pyattr_get_INTERSECT(PyObjectPlus *self_v, const KX_PYATTRIBUTE_DEF *attrdef);
+	static PyObject*	pyattr_get_INSIDE(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef);
+	static PyObject*	pyattr_get_OUTSIDE(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef);
+	static PyObject*	pyattr_get_INTERSECT(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef);
 #endif
 };
 

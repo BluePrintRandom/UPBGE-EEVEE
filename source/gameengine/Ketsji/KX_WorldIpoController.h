@@ -34,29 +34,25 @@
 
 #include "SG_Controller.h"
 #include "SG_Node.h"
-#include "KX_IInterpolator.h"
+#include "SG_Interpolator.h"
 
-class KX_WorldIpoController : public SG_Controller
+class KX_WorldIpoController : public SG_Controller, public mt::SimdClassAllocator
 {
 public:
-	MT_Scalar           m_mist_start;
-	MT_Scalar           m_mist_dist;
-	MT_Scalar           m_mist_intensity;
-	MT_Vector3 m_hori_rgb;
-	MT_Vector3 m_zeni_rgb;
-	MT_Vector3 m_ambi_rgb;
+	float           m_mist_start;
+	float           m_mist_dist;
+	float           m_mist_intensity;
+	mt::vec3 m_hori_rgb;
+	mt::vec3 m_zeni_rgb;
+	mt::vec3 m_ambi_rgb;
 
 private:
-	T_InterpolatorList	m_interpolators;
 	unsigned short		m_modify_mist_start	 : 1;
 	unsigned short  	m_modify_mist_dist 	 : 1;
 	unsigned short		m_modify_mist_intensity	: 1;
 	unsigned short		m_modify_horizon_color	: 1;
 	unsigned short		m_modify_zenith_color : 1;
 	unsigned short		m_modify_ambient_color	: 1;
-	bool				m_modified;
-
-	double		        m_ipotime;
 
 public:
 	KX_WorldIpoController() : 
@@ -65,21 +61,12 @@ public:
 				m_modify_mist_intensity(false),
 				m_modify_horizon_color(false),
 				m_modify_zenith_color(false),
-				m_modify_ambient_color(false),
-				m_modified(true),
-				m_ipotime(0.0)
+				m_modify_ambient_color(false)
 		{}
 
-	virtual ~KX_WorldIpoController();
+	virtual ~KX_WorldIpoController() = default;
 
-	virtual	SG_Controller*	GetReplica(class SG_Node* destnode);
-
-	virtual bool Update(double time);
-	
-	virtual void SetSimulatedTime(double time) {
-		m_ipotime = time;
-		m_modified = true;
-	}
+	virtual bool Update(SG_Node *node);
 
 	void	SetModifyMistStart(bool modify) {
 		m_modify_mist_start = modify;
@@ -104,16 +91,6 @@ public:
 	void	SetModifyAmbientColor(bool modify) {
 		m_modify_ambient_color = modify;
 	}
-
-		void
-	SetOption(
-		int option,
-		int value
-	) {
-		// intentionally empty
-	};
-
-	void	AddInterpolator(KX_IInterpolator* interp);
 };
 
 #endif  /* __KX_WORLDIPOCONTROLLER_H__ */

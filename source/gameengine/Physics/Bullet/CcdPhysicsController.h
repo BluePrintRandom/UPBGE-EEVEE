@@ -46,8 +46,8 @@ extern bool gDisableDeactivation;
 class CcdPhysicsEnvironment;
 class CcdPhysicsController;
 class btMotionState;
-class RAS_MeshObject;
-struct DerivedMesh;
+class RAS_Mesh;
+class RAS_Deformer;
 class btCollisionShape;
 
 #define CCD_BSB_SHAPE_MATCHING  2
@@ -63,15 +63,16 @@ class btCollisionShape;
 
 // Shape contructor
 // It contains all the information needed to create a simple bullet shape at runtime
-class CcdShapeConstructionInfo : public CM_RefCount<CcdShapeConstructionInfo>
+class CcdShapeConstructionInfo : public CM_RefCount<CcdShapeConstructionInfo>, public mt::SimdClassAllocator
 {
 public:
+
 	struct UVco
 	{
 		float uv[2];
 	};
 
-	static CcdShapeConstructionInfo *FindMesh(class RAS_MeshObject *mesh, struct DerivedMesh *dm, bool polytope);
+	static CcdShapeConstructionInfo *FindMesh(RAS_Mesh *mesh, RAS_Deformer *deformer, PHY_ShapeType shapeType);
 
 	CcdShapeConstructionInfo() 
 		:m_shapeType(PHY_SHAPE_NONE),
@@ -80,7 +81,7 @@ public:
 		m_halfExtend(0.0f, 0.0f, 0.0f),
 		m_childScale(1.0f, 1.0f, 1.0f),
 		m_userData(nullptr),
-		m_meshObject(nullptr),
+		m_mesh(nullptr),
 		m_triangleIndexVertexArray(nullptr),
 		m_forceReInstance(false),
 		m_weldingThreshold1(0.0f),
@@ -90,11 +91,6 @@ public:
 	}
 
 	~CcdShapeConstructionInfo();
-
-	bool IsUnused(void)
-	{
-		return (m_meshObject == nullptr && m_shapeArray.size() == 0 && m_shapeProxy == nullptr);
-	}
 
 	void AddShape(CcdShapeConstructionInfo *shapeInfo);
 
@@ -138,13 +134,7 @@ public:
 		return true;
 	}
 
-	bool SetMesh(class RAS_MeshObject *mesh, struct DerivedMesh *dm, bool polytope);
-	RAS_MeshObject *GetMesh(void)
-	{
-		return m_meshObject;
-	}
-
-	bool UpdateMesh(class KX_GameObject *gameobj, class RAS_MeshObject *mesh);
+	bool UpdateMesh(class KX_GameObject *gameobj, class RAS_Mesh *mesh);
 
 	CcdShapeConstructionInfo *GetReplica();
 
@@ -156,6 +146,8 @@ public:
 		return m_shapeProxy;
 	}
 
+	RAS_Mesh *GetMesh() const;
+
 	btCollisionShape *CreateBulletShape(btScalar margin, bool useGimpact = false, bool useBvh = true);
 
 	// member variables
@@ -166,6 +158,10 @@ public:
 	btTransform m_childTrans;
 	btVector3 m_childScale;
 	void *m_userData;
+
+	/** Vertex mapping from original vertex index to shape vertex index. */
+	std::vector<int> m_vertexRemap;
+
 	/** Contains both vertex array for polytope shape and triangle array for concave mesh shape.
 	 * Each vertex is 3 consecutive values. In this case a triangle is made of 3 consecutive points
 	 */
@@ -186,9 +182,12 @@ public:
 		m_weldingThreshold1  = threshold * threshold;
 	}
 protected:
-	static std::map<RAS_MeshObject *, CcdShapeConstructionInfo *> m_meshShapeMap;
-	/// Keep a pointer to the original mesh
-	RAS_MeshObject *m_meshObject;
+	using MeshShapeKey = std::tuple<RAS_Mesh *, RAS_Deformer *, PHY_ShapeType>;
+	using MeshShapeMap = std::map<MeshShapeKey, CcdShapeConstructionInfo *>;
+
+	static MeshShapeMap m_meshShapeMap;
+	/// Converted original mesh.
+	RAS_Mesh *m_mesh;
 	/// The list of vertexes and indexes for the triangle mesh, shared between Bullet shape.
 	btTriangleIndexVertexArray *m_triangleIndexVertexArray;
 	/// for compound shapes
@@ -209,13 +208,13 @@ struct CcdConstructionInfo {
 	 */
 	enum CollisionFilterGroups
 	{
-		DefaultFilter = 1,
+		DynamicFilter = 1,
 		StaticFilter = 2,
 		KinematicFilter = 4,
 		DebrisFilter = 8,
 		SensorFilter = 16,
 		CharacterFilter = 32,
-		AllFilter = DefaultFilter | StaticFilter | KinematicFilter | DebrisFilter | SensorFilter | CharacterFilter,
+		AllFilter = DynamicFilter | StaticFilter | KinematicFilter | DebrisFilter | SensorFilter | CharacterFilter,
 	};
 
 	CcdConstructionInfo()
@@ -236,6 +235,7 @@ struct CcdConstructionInfo {
 		m_angularDamping(0.1f),
 		m_margin(0.06f),
 		m_gamesoftFlag(0),
+		m_softBendingDistance(2),
 		m_soft_linStiff(1.0f),
 		m_soft_angStiff(1.0f),
 		m_soft_volume(1.0f),
@@ -268,8 +268,10 @@ struct CcdConstructionInfo {
 		m_bSensor(false),
 		m_bCharacter(false),
 		m_bGimpact(false),
-		m_collisionFilterGroup(DefaultFilter),
+		m_collisionFilterGroup(DynamicFilter),
 		m_collisionFilterMask(AllFilter),
+		m_collisionGroup(0xFFFF),
+		m_collisionMask(0xFFFF),
 		m_collisionShape(nullptr),
 		m_MotionState(nullptr),
 		m_shapeInfo(nullptr),
@@ -309,9 +311,11 @@ struct CcdConstructionInfo {
 	float m_stepHeight;
 	float m_jumpSpeed;
 	float m_fallSpeed;
+	float m_maxSlope;
 	unsigned char m_maxJumps;
 
 	int m_gamesoftFlag;
+	unsigned short m_softBendingDistance;
 	/// linear stiffness 0..1
 	float m_soft_linStiff;
 	/// angular stiffness 0..1
@@ -390,6 +394,9 @@ struct CcdConstructionInfo {
 	short int m_collisionFilterGroup;
 	short int m_collisionFilterMask;
 
+	unsigned short m_collisionGroup;
+	unsigned short m_collisionMask;
+
 	/** these pointers are used as argument passing for the CcdPhysicsController constructor
 	 * and not anymore after that
 	 */
@@ -431,9 +438,9 @@ struct CcdConstructionInfo {
 class btRigidBody;
 class btCollisionObject;
 class btSoftBody;
-class btPairCachingGhostObject;
+class btGhostObject;
 
-class BlenderBulletCharacterController : public btKinematicCharacterController, public PHY_ICharacter
+class CcdCharacter : public btKinematicCharacterController, public PHY_ICharacter
 {
 private:
 	CcdPhysicsController *m_ctrl;
@@ -442,7 +449,7 @@ private:
 	unsigned char m_maxJumps;
 
 public:
-	BlenderBulletCharacterController(CcdPhysicsController *ctrl, btMotionState *motionState, btPairCachingGhostObject *ghost, btConvexShape *shape, float stepHeight);
+	CcdCharacter(CcdPhysicsController *ctrl, btMotionState *motionState, btGhostObject *ghost, btConvexShape *shape, float stepHeight);
 
 	virtual void updateAction(btCollisionWorld *collisionWorld, btScalar dt);
 
@@ -469,13 +476,13 @@ public:
 	{
 		return onGround();
 	}
-	virtual float GetGravity()
+	virtual mt::vec3 GetGravity()
 	{
-		return getGravity();
+		return ToMt(getGravity());
 	}
-	virtual void SetGravity(float gravity)
+	virtual void SetGravity(const mt::vec3& gravity)
 	{
-		setGravity(gravity);
+		setGravity(ToBullet(gravity));
 	}
 	virtual unsigned char GetMaxJumps()
 	{
@@ -489,23 +496,26 @@ public:
 	{
 		return getJumpCount();
 	}
-	virtual void SetWalkDirection(const MT_Vector3& dir)
+	virtual void SetWalkDirection(const mt::vec3& dir)
 	{
 		setWalkDirection(ToBullet(dir));
 	}
 
-	virtual MT_Vector3 GetWalkDirection()
+	virtual mt::vec3 GetWalkDirection()
 	{
-		return ToMoto(getWalkDirection());
+		return ToMt(getWalkDirection());
 	}
 
 	virtual float GetFallSpeed() const;
 	virtual void SetFallSpeed(float fallSpeed);
 
+	virtual float GetMaxSlope() const;
+	virtual void SetMaxSlope(float maxSlope);
+
 	virtual float GetJumpSpeed() const;
 	virtual void SetJumpSpeed(float jumpSpeed);
 
-	virtual void SetVelocity(const MT_Vector3& vel, float time, bool local);
+	virtual void SetVelocity(const mt::vec3& vel, float time, bool local);
 
 	virtual void Reset();
 };
@@ -528,11 +538,11 @@ public:
 };
 
 /// CcdPhysicsController is a physics object that supports continuous collision detection and time of impact based physics resolution.
-class CcdPhysicsController : public PHY_IPhysicsController
+class CcdPhysicsController : public PHY_IPhysicsController, public mt::SimdClassAllocator
 {
 protected:
 	btCollisionObject *m_object;
-	BlenderBulletCharacterController *m_characterController;
+	CcdCharacter *m_characterController;
 
 	class PHY_IMotionState *m_MotionState;
 	btMotionState *m_bulletMotionState;
@@ -546,21 +556,22 @@ protected:
 	friend class CcdPhysicsEnvironment;
 
 	//some book keeping for replication
-	bool m_softbodyMappingDone;
 	bool m_softBodyTransformInitialized;
-	bool m_prototypeTransformInitialized;
 	btTransform m_softbodyStartTrans;
+
+	/// Soft body indices for all original vertices.
+	std::vector<unsigned int> m_softBodyIndices;
 
 	void *m_newClientInfo;
 	int m_registerCount;            // needed when multiple sensors use the same controller
 	CcdConstructionInfo m_cci;//needed for replication
 
-	CcdPhysicsController *m_parentCtrl;
+	CcdPhysicsController *m_parentRoot;
 
 	int m_savedCollisionFlags;
 	short m_savedCollisionFilterGroup;
 	short m_savedCollisionFilterMask;
-	MT_Scalar m_savedMass;
+	float m_savedMass;
 	bool m_savedDyna;
 	bool m_suspended;
 
@@ -593,7 +604,6 @@ protected:
 	void ForceWorldTransform(const btMatrix3x3& mat, const btVector3& pos);
 
 public:
-	int m_collisionDelay;
 
 	CcdPhysicsController(const CcdConstructionInfo& ci);
 
@@ -634,6 +644,8 @@ public:
 	{
 		return m_object->getCollisionShape();
 	}
+
+	const std::vector<unsigned int>& GetSoftBodyIndices() const;
 	////////////////////////////////////
 	// PHY_IPhysicsController interface
 	////////////////////////////////////
@@ -660,43 +672,51 @@ public:
 	virtual void SetPhysicsEnvironment(class PHY_IPhysicsEnvironment *env);
 
 	// kinematic methods
-	virtual void RelativeTranslate(const MT_Vector3& dloc, bool local);
-	virtual void RelativeRotate(const MT_Matrix3x3&rotval, bool local);
-	virtual MT_Matrix3x3 GetOrientation();
-	virtual void SetOrientation(const MT_Matrix3x3& orn);
-	virtual void SetPosition(const MT_Vector3& pos);
-	virtual void GetPosition(MT_Vector3& pos) const;
-	virtual void SetScaling(const MT_Vector3& scale);
+	virtual void RelativeTranslate(const mt::vec3& dloc, bool local);
+	virtual void RelativeRotate(const mt::mat3&rotval, bool local);
+	virtual mt::mat3 GetOrientation();
+	virtual void SetOrientation(const mt::mat3& orn);
+	virtual void SetPosition(const mt::vec3& pos);
+	virtual mt::vec3 GetPosition() const;
+	virtual void SetScaling(const mt::vec3& scale);
 	virtual void SetTransform();
 
-	virtual MT_Scalar GetMass();
-	virtual void SetMass(MT_Scalar newmass);
+	virtual float GetMass();
+	virtual void SetMass(float newmass);
+
+	float GetInertiaFactor() const;
 
 	// physics methods
-	virtual void ApplyImpulse(const MT_Vector3& attach, const MT_Vector3& impulsein, bool local);
-	virtual void ApplyTorque(const MT_Vector3& torque, bool local);
-	virtual void ApplyForce(const MT_Vector3& force, bool local);
-	virtual void SetAngularVelocity(const MT_Vector3& ang_vel, bool local);
-	virtual void SetLinearVelocity(const MT_Vector3& lin_vel, bool local);
+	virtual void ApplyImpulse(const mt::vec3& attach, const mt::vec3& impulsein, bool local);
+	virtual void ApplyTorque(const mt::vec3& torque, bool local);
+	virtual void ApplyForce(const mt::vec3& force, bool local);
+	virtual void SetAngularVelocity(const mt::vec3& ang_vel, bool local);
+	virtual void SetLinearVelocity(const mt::vec3& lin_vel, bool local);
 	virtual void Jump();
 	virtual void SetActive(bool active);
+
+	virtual unsigned short GetCollisionGroup() const;
+	virtual unsigned short GetCollisionMask() const;
+	virtual void SetCollisionGroup(unsigned short group);
+	virtual void SetCollisionMask(unsigned short mask);
 
 	virtual float GetLinearDamping() const;
 	virtual float GetAngularDamping() const;
 	virtual void SetLinearDamping(float damping);
 	virtual void SetAngularDamping(float damping);
 	virtual void SetDamping(float linear, float angular);
+	virtual void SetGravity(const mt::vec3 &gravity);
 
 	// reading out information from physics
-	virtual MT_Vector3 GetLinearVelocity();
-	virtual MT_Vector3 GetAngularVelocity();
-	virtual MT_Vector3 GetVelocity(const MT_Vector3& posin);
-	virtual MT_Vector3 GetLocalInertia();
+	virtual mt::vec3 GetLinearVelocity();
+	virtual mt::vec3 GetAngularVelocity();
+	virtual mt::vec3 GetVelocity(const mt::vec3& posin);
+	virtual mt::vec3 GetLocalInertia();
+	virtual mt::vec3 GetGravity();
 
 	// dyna's that are rigidbody are free in orientation, dyna's with non-rigidbody are restricted
 	virtual void SetRigidBody(bool rigid);
 
-	virtual void ResolveCombinedVelocities(float linvelX, float linvelY, float linvelZ, float angVelX, float angVelY, float angVelZ);
 	virtual void RefreshCollisions();
 	virtual void SuspendPhysics(bool freeConstraints);
 	virtual void RestorePhysics();
@@ -724,9 +744,6 @@ public:
 		return m_cci.m_collisionFilterMask;
 	}
 
-	virtual void CalcXform()
-	{
-	}
 	virtual void SetMargin(float margin)
 	{
 		if (m_collisionShape) {
@@ -797,8 +814,6 @@ public:
 
 	static btTransform GetTransformFromMotionState(PHY_IMotionState *motionState);
 
-	void setAabb(const btVector3& aabbMin, const btVector3& aabbMax);
-
 	class PHY_IMotionState *GetMotionState()
 	{
 		return m_MotionState;
@@ -814,19 +829,14 @@ public:
 		return m_cci.m_physicsEnv;
 	}
 
-	void SetParentCtrl(CcdPhysicsController *parentCtrl)
+	void SetParentRoot(CcdPhysicsController *parentCtrl)
 	{
-		m_parentCtrl = parentCtrl;
+		m_parentRoot = parentCtrl;
 	}
 
-	CcdPhysicsController *GetParentCtrl()
+	CcdPhysicsController *GetParentRoot() const
 	{
-		return m_parentCtrl;
-	}
-
-	const CcdPhysicsController *GetParentCtrl() const
-	{
-		return m_parentCtrl;
+		return m_parentRoot;
 	}
 
 	virtual bool IsDynamic()
@@ -846,28 +856,25 @@ public:
 		return GetConstructionInfo().m_shapeInfo->m_shapeType == PHY_SHAPE_COMPOUND;
 	}
 
-	virtual bool ReinstancePhysicsShape(KX_GameObject *from_gameobj, RAS_MeshObject *from_meshobj, bool dupli = false);
+	virtual bool ReinstancePhysicsShape(KX_GameObject *from_gameobj, RAS_Mesh *from_meshobj, bool dupli = false);
 	virtual void ReplacePhysicsShape(PHY_IPhysicsController *phyctrl);
-
-	/* Method to replicate rigid body joint contraints for group instances. */
-	virtual void ReplicateConstraints(KX_GameObject *gameobj, std::vector<KX_GameObject *> constobj);
 };
 
 /// DefaultMotionState implements standard motionstate, using btTransform
-class DefaultMotionState : public PHY_IMotionState
+class DefaultMotionState : public PHY_IMotionState, public mt::SimdClassAllocator
 {
 public:
 	DefaultMotionState();
 
 	virtual ~DefaultMotionState();
 
-	virtual MT_Vector3 GetWorldPosition() const;
-	virtual MT_Vector3 GetWorldScaling() const;
-	virtual MT_Matrix3x3 GetWorldOrientation() const;
+	virtual mt::vec3 GetWorldPosition() const;
+	virtual mt::vec3 GetWorldScaling() const;
+	virtual mt::mat3 GetWorldOrientation() const;
 
-	virtual void SetWorldPosition(const MT_Vector3& pos);
-	virtual void SetWorldOrientation(const MT_Matrix3x3& ori);
-	virtual void SetWorldOrientation(const MT_Quaternion& quat);
+	virtual void SetWorldPosition(const mt::vec3& pos);
+	virtual void SetWorldOrientation(const mt::mat3& ori);
+	virtual void SetWorldOrientation(const mt::quat& quat);
 
 	virtual void CalculateWorldTransformations();
 

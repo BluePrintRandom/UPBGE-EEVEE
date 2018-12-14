@@ -32,14 +32,14 @@
 #ifndef __RAS_BUCKETMANAGER_H__
 #define __RAS_BUCKETMANAGER_H__
 
-#include "MT_Transform.h"
 #include "RAS_MaterialBucket.h"
 
 #include <vector>
 
-class RAS_FrameBuffer;
+class RAS_OffScreen;
+class SCA_IScene;
 
-class RAS_BucketManager
+class RAS_BucketManager : public mt::SimdClassAllocator
 {
 public:
 	typedef std::vector<RAS_MaterialBucket *> BucketList;
@@ -47,14 +47,16 @@ public:
 	{
 	public:
 		/// depth
-		MT_Scalar m_z;
+		float m_z;
 
 		union {
 			RAS_MeshSlot *m_ms;
+			RAS_MeshSlotUpwardNode *m_node;
 		};
 
 		SortedMeshSlot() = default;
-		SortedMeshSlot(RAS_MeshSlot *ms, const MT_Vector3& pnorm);
+		SortedMeshSlot(RAS_MeshSlot *ms, const mt::vec3& pnorm);
+		SortedMeshSlot(RAS_MeshSlotUpwardNode *node, const mt::vec3& pnorm);
 	};
 
 	struct backtofront
@@ -66,7 +68,7 @@ public:
 		bool operator()(const SortedMeshSlot &a, const SortedMeshSlot &b);
 	};
 
-private:
+protected:
 	enum BucketType {
 		SOLID_BUCKET = 0,
 		ALPHA_BUCKET,
@@ -82,49 +84,44 @@ private:
 		NUM_BUCKET_TYPE,
 	};
 
-	/// Override shaders.
-	enum OverrideShaderType {
-		OVERRIDE_SHADER_NONE = 0,
-		OVERRIDE_SHADER_BLACK,
-		OVERRIDE_SHADER_SHADOW,
-		OVERRIDE_SHADER_MAX
-	};
-
 	BucketList m_buckets[NUM_BUCKET_TYPE];
 
-	struct TextMaterial
+	RAS_ManagerNodeData m_nodeData;
+	RAS_ManagerDownwardNode m_downwardNode;
+	RAS_ManagerUpwardNode m_upwardNode;
+
+	struct TextData
 	{
-		RAS_IPolyMaterial *m_material;
+		RAS_MaterialBucket *m_bucket;
 		RAS_DisplayArrayBucket *m_arrayBucket;
 	} m_text;
 
-	void RenderBasicBuckets(RAS_Rasterizer *rasty, BucketType bucketType);
-	void RenderSortedBuckets(RAS_Rasterizer *rasty, BucketType bucketType);
-
 public:
+
 	/** Initialize bucket manager and create material bucket for the text material.
 	 * \param textMaterial The material used to render texts.
 	 */
-	RAS_BucketManager(RAS_IPolyMaterial *textMaterial);
+	RAS_BucketManager(RAS_IMaterial *textMaterial);
 	virtual ~RAS_BucketManager();
 
-	void Renderbuckets(const MT_Transform & cameratrans, RAS_Rasterizer *rasty, RAS_FrameBuffer *frameBuffer);
+	void Renderbuckets(RAS_Rasterizer::DrawType drawingMode, const mt::mat3x4& cameratrans, RAS_Rasterizer *rasty,
+			RAS_OffScreen *offScreen);
 
-	RAS_MaterialBucket *FindBucket(RAS_IPolyMaterial *material, bool &bucketCreated);
+	RAS_MaterialBucket *FindBucket(RAS_IMaterial *material, bool &bucketCreated);
 	RAS_DisplayArrayBucket *GetTextDisplayArrayBucket() const;
 
-	void UpdateShaders(RAS_IPolyMaterial *material = nullptr);
-	void ReleaseMaterials(RAS_IPolyMaterial *material = nullptr);
+	void ReloadMaterials(RAS_IMaterial *material = nullptr);
 
 	// freeing scenes only
-	void RemoveMaterial(RAS_IPolyMaterial *mat);
+	void RemoveMaterial(RAS_IMaterial *mat);
 
 	// for merging
-	void MergeBucketManager(RAS_BucketManager *other);
-	BucketList& GetBuckets()
-	{
-		return m_buckets[ALL_BUCKET];
-	}
+	void Merge(RAS_BucketManager *other, SCA_IScene *scene);
+
+private:
+	void PrepareBuckets(RAS_Rasterizer *rasty, BucketType bucketType);
+	void RenderBasicBuckets(RAS_Rasterizer *rasty, BucketType bucketType);
+	void RenderSortedBuckets(RAS_Rasterizer *rasty, BucketType bucketType);
 };
 
 #endif // __RAS_BUCKETMANAGER_H__

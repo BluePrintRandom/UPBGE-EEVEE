@@ -33,7 +33,6 @@
 #define __KX_RADARSENSOR_H__
 
 #include "KX_NearSensor.h"
-#include "MT_Vector3.h"
 
 /**
  * Radar 'cone' sensor. Very similar to a near-sensor, but instead of a sphere, a cone is used.
@@ -54,12 +53,12 @@ class KX_RadarSensor : public KX_NearSensor
 	/**
 	 * The previous position of the origin of the cone.
 	 */
-	float       m_cone_origin[3];
+	mt::vec3 m_cone_origin;
 
 	/**
 	 * The previous direction of the cone (origin to bottom plane).
 	 */
-	float       m_cone_target[3];
+	mt::vec3 m_cone_target;
 	
 public:
 
@@ -76,7 +75,7 @@ public:
 	KX_RadarSensor();
 	virtual ~KX_RadarSensor();
 	virtual void SynchronizeTransform();
-	virtual CValue* GetReplica();
+	virtual EXP_Value* GetReplica();
 
 	/* --------------------------------------------------------------------- */
 	/* Python interface ---------------------------------------------------- */
@@ -93,7 +92,7 @@ public:
 	virtual sensortype GetSensorType() { return ST_RADAR; }
 	/* python */
 #ifdef WITH_PYTHON
-	static PyObject*	pyattr_get_angle(PyObjectPlus *self_v, const KX_PYATTRIBUTE_DEF *attrdef);
+	static PyObject*	pyattr_get_angle(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef);
 #endif
 };
 

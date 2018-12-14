@@ -34,7 +34,6 @@
 #define __KX_RAYSENSOR_H__
 
 #include "SCA_ISensor.h"
-#include "MT_Vector3.h"
 #include "SCA_IScene.h" /* only for scene replace */
 #include "KX_Scene.h" /* only for scene replace */
 
@@ -55,10 +54,10 @@ class KX_RaySensor : public SCA_ISensor
 	int				m_axis;
 	int				m_mask;
 	bool			m_rayHit;
-	float			m_hitPosition[3];
+	mt::vec3 m_hitPosition;
 	SCA_IObject*	m_hitObject;
-	float			m_hitNormal[3];
-	float			m_rayDirection[3];
+	mt::vec3 m_hitNormal;
+	mt::vec3 m_rayDirection;
 	std::string		m_hitMaterial;
 
 public:
@@ -72,7 +71,7 @@ public:
 					int mask,
 					class KX_Scene* ketsjiScene);
 	virtual ~KX_RaySensor();
-	virtual CValue* GetReplica();
+	virtual EXP_Value* GetReplica();
 
 	virtual bool Evaluate();
 	virtual bool IsPositiveTrigger();
@@ -102,7 +101,7 @@ public:
 #ifdef WITH_PYTHON
 
 	/* Attributes */
-	static PyObject *pyattr_get_hitobject(PyObjectPlus *self_v, const KX_PYATTRIBUTE_DEF *attrdef);
+	static PyObject *pyattr_get_hitobject(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef);
 	
 #endif  /* WITH_PYTHON */
 

@@ -29,12 +29,20 @@
 
 #include "EXP_Python.h"
 
+/** Check and call a python callable object.
+ * \param value Callable object candidate.
+ * \param arglist The first item in the tuple to execute callbacks (can be nullptr for no arguments).
+ * \param minargcount The minimum of arguments possible.
+ * \param maxargcount The maximum of arguments possible.
+ */
+void EXP_RunPythonCallback(PyObject *value, PyObject **arglist, unsigned int minargcount, unsigned int maxargcount);
+
 /** Execute each functions with at least one argument
  * \param functionlist The python list which contains callbacks.
  * \param arglist The first item in the tuple to execute callbacks (can be nullptr for no arguments).
  * \param minargcount The minimum of quantity of arguments possible.
  * \param maxargcount The maximum of quantity of arguments possible.
  */
-void RunPythonCallBackList(PyObject *functionlist, PyObject **arglist, unsigned int minargcount, unsigned int maxargcount);
+void EXP_RunPythonCallBackList(PyObject *functionlist, PyObject **arglist, unsigned int minargcount, unsigned int maxargcount);
 
 #endif // __EXP_PYTHON_CALLBACK_H__

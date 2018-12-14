@@ -23,81 +23,17 @@
  */
 
 #include "KX_MaterialIpoController.h"
-#include "KX_ScalarInterpolator.h"
 #include "KX_GameObject.h"
 
-#include "RAS_IPolygonMaterial.h"
+#include "RAS_IMaterial.h"
 
-#include "BLI_sys_types.h" // for intptr_t support
-
-bool KX_MaterialIpoController::Update(double currentTime)
+bool KX_MaterialIpoController::Update(SG_Node *node)
 {
-	if (m_modified)
-	{
-		T_InterpolatorList::iterator i;
-		for (i = m_interpolators.begin(); !(i == m_interpolators.end()); ++i) {
-			(*i)->Execute(m_ipotime);
-		}
-
-		m_material->UpdateIPO(
-			m_rgba, 
-			m_specrgb, 
-			m_hard, 
-			m_spec, 
-			m_ref, 
-			m_emit,
-			m_ambient,
-			m_alpha,
-			m_specAlpha
-		);
-
-		m_modified=false;
+	if (!SG_Controller::Update(node)) {
+		return false;
 	}
-	return false;
+
+	m_material->UpdateIPO(m_rgba, m_specrgb, m_hard, m_spec, m_ref, m_emit, m_ambient, m_alpha, m_specAlpha);
+
+	return true;
 }
-
-
-void KX_MaterialIpoController::AddInterpolator(KX_IInterpolator* interp)
-{
-	this->m_interpolators.push_back(interp);
-}
-
-SG_Controller*	KX_MaterialIpoController::GetReplica(class SG_Node* destnode)
-{
-	KX_MaterialIpoController* iporeplica = new KX_MaterialIpoController(*this);
-	// clear object that ipo acts on
-	iporeplica->ClearNode();
-
-	// dirty hack, ask Gino for a better solution in the ipo implementation
-	// hacken en zagen, in what we call datahiding, not written for replication :(
-
-	T_InterpolatorList oldlist = m_interpolators;
-	iporeplica->m_interpolators.clear();
-
-	T_InterpolatorList::iterator i;
-	for (i = oldlist.begin(); !(i == oldlist.end()); ++i) {
-		KX_ScalarInterpolator* copyipo = new KX_ScalarInterpolator(*((KX_ScalarInterpolator*)*i));
-		iporeplica->AddInterpolator(copyipo);
-
-		MT_Scalar* scaal = ((KX_ScalarInterpolator*)*i)->GetTarget();
-		intptr_t orgbase = (intptr_t)this;
-		intptr_t orgloc = (intptr_t)scaal;
-		intptr_t offset = orgloc-orgbase;
-		intptr_t newaddrbase = (intptr_t)iporeplica + offset;
-		MT_Scalar* blaptr = (MT_Scalar*) newaddrbase;
-		copyipo->SetNewTarget((MT_Scalar*)blaptr);
-	}
-	
-	return iporeplica;
-}
-
-KX_MaterialIpoController::~KX_MaterialIpoController()
-{
-
-	T_InterpolatorList::iterator i;
-	for (i = m_interpolators.begin(); !(i == m_interpolators.end()); ++i) {
-		delete (*i);
-	}
-	
-}
-

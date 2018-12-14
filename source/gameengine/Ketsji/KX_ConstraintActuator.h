@@ -33,8 +33,7 @@
 #define __KX_CONSTRAINTACTUATOR_H__
 
 #include "SCA_IActuator.h"
-#include "MT_Scalar.h"
-#include "MT_Vector3.h"
+#include "mathfu.h"
 #include "KX_ClientObjectInfo.h"
 
 #include "BLI_utildefines.h"
@@ -42,7 +41,7 @@
 class KX_RayCast;
 class KX_GameObject;
 
-class KX_ConstraintActuator : public SCA_IActuator
+class KX_ConstraintActuator : public SCA_IActuator, public mt::SimdClassAllocator
 {
 	Py_Header
 protected:
@@ -58,8 +57,7 @@ protected:
 	// sinus of maximum angle
 	float m_maximumSine;
 	// reference direction
-	float m_refDirection[3];
-	MT_Vector3 m_refDirVector;	// same as m_refDirection
+	mt::vec3 m_refDirection;
 	// locrotxyz choice (pick one): only one choice allowed at a time!
 	int m_locrot;
 	// active time of actuator
@@ -72,14 +70,7 @@ protected:
 	// hit object
 	KX_GameObject* m_hitObject;
 
-	/**
-	 * Clamp <var> to <min>, <max>. Borders are included (in as far as
-	 * float comparisons are good for equality...).
-	 */
-	void Clamp(MT_Scalar &var, float min, float max);
-
-	
- public:
+public:
 	 //  m_locrot
 	enum KX_CONSTRAINTTYPE {
 		KX_ACT_CONSTRAINT_NODEF = 0,
@@ -125,13 +116,13 @@ protected:
 						  int rotDampTime,
 						  float min,
 						  float max,
-						  float refDir[3],
+						  const mt::vec3& refDir,
 						  int locrot,
 						  int time,
 						  int option,
 						  char *property);
 	virtual ~KX_ConstraintActuator();
-	virtual CValue* GetReplica() {
+	virtual EXP_Value* GetReplica() {
 		KX_ConstraintActuator* replica = new KX_ConstraintActuator(*this);
 		replica->ProcessReplica();
 		return replica;
@@ -143,8 +134,8 @@ protected:
 	/* Python interface ---------------------------------------------------- */
 	/* --------------------------------------------------------------------- */
 
-	static int pyattr_check_direction(PyObjectPlus *self_v, const struct KX_PYATTRIBUTE_DEF *attrdef);
-	static int pyattr_check_min(PyObjectPlus *self_v, const struct KX_PYATTRIBUTE_DEF *attrdef);
+	static int pyattr_check_direction(EXP_PyObjectPlus *self_v, const struct EXP_PYATTRIBUTE_DEF *attrdef);
+	static int pyattr_check_min(EXP_PyObjectPlus *self_v, const struct EXP_PYATTRIBUTE_DEF *attrdef);
 
 };
 

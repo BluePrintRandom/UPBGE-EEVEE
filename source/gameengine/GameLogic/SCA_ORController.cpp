@@ -42,8 +42,8 @@
 /* Native functions                                                          */
 /* ------------------------------------------------------------------------- */
 
-SCA_ORController::SCA_ORController(SCA_IObject* gameobj)
-		:SCA_IController(gameobj)
+SCA_ORController::SCA_ORController(SCA_IObject *gameobj)
+	:SCA_IController(gameobj)
 {
 }
 
@@ -55,9 +55,9 @@ SCA_ORController::~SCA_ORController()
 
 
 
-CValue* SCA_ORController::GetReplica()
+EXP_Value *SCA_ORController::GetReplica()
 {
-	CValue* replica = new SCA_ORController(*this);
+	EXP_Value *replica = new SCA_ORController(*this);
 	// this will copy properties and so on...
 	replica->ProcessReplica();
 
@@ -65,25 +65,19 @@ CValue* SCA_ORController::GetReplica()
 }
 
 
-void SCA_ORController::Trigger(SCA_LogicManager* logicmgr)
+void SCA_ORController::Trigger(SCA_LogicManager *logicmgr)
 {
 
 	bool sensorresult = false;
-	SCA_ISensor* sensor;
 
-	std::vector<SCA_ISensor*>::const_iterator is=m_linkedsensors.begin();
-	while ( (!sensorresult) && (!(is==m_linkedsensors.end())) )
-	{
-		sensor = *is;
-		if (sensor->GetState()) sensorresult = true;
-		is++;
+	for (SCA_ISensor *sensor : m_linkedsensors) {
+		if (sensor->GetState()) {
+			sensorresult = true;
+		}
 	}
-	
-	for (std::vector<SCA_IActuator*>::const_iterator i=m_linkedactuators.begin();
-	!(i==m_linkedactuators.end());i++)
-	{
-		SCA_IActuator* actua = *i;
-		logicmgr->AddActiveActuator(actua,sensorresult);
+
+	for (SCA_IActuator *actuator : m_linkedactuators) {
+		logicmgr->AddActiveActuator(actuator, sensorresult);
 	}
 }
 
@@ -97,7 +91,7 @@ void SCA_ORController::Trigger(SCA_LogicManager* logicmgr)
 PyTypeObject SCA_ORController::Type = {
 	PyVarObject_HEAD_INIT(nullptr, 0)
 	"SCA_ORController",
-	sizeof(PyObjectPlus_Proxy),
+	sizeof(EXP_PyObjectPlus_Proxy),
 	0,
 	py_base_dealloc,
 	0,
@@ -105,23 +99,23 @@ PyTypeObject SCA_ORController::Type = {
 	0,
 	0,
 	py_base_repr,
-	0,0,0,0,0,0,0,0,0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0,
 	Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
-	0,0,0,0,0,0,0,
+	0, 0, 0, 0, 0, 0, 0,
 	Methods,
 	0,
 	0,
 	&SCA_IController::Type,
-	0,0,0,0,0,0,
+	0, 0, 0, 0, 0, 0,
 	py_base_new
 };
 
 PyMethodDef SCA_ORController::Methods[] = {
-	{nullptr,nullptr} //Sentinel
+	{nullptr, nullptr} //Sentinel
 };
 
 PyAttributeDef SCA_ORController::Attributes[] = {
-	KX_PYATTRIBUTE_NULL	//Sentinel
+	EXP_PYATTRIBUTE_NULL    //Sentinel
 };
 
 #endif // WITH_PYTHON

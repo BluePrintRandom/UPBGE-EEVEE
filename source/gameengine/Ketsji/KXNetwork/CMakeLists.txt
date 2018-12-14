@@ -34,7 +34,8 @@ set(INC
 )
 
 set(INC_SYS
-	../../../../intern/moto/include
+	../../../../intern/debugbreak
+	../../../../intern/mathfu
 )
 
 set(SRC

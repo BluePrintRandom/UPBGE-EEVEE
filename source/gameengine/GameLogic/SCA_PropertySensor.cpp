@@ -38,29 +38,30 @@
 #include "EXP_BoolValue.h"
 #include "EXP_FloatValue.h"
 
+#include "BLI_compiler_attrs.h"
+
 #include "CM_Format.h"
 
 #include <boost/algorithm/string.hpp>
 
-SCA_PropertySensor::SCA_PropertySensor(SCA_EventManager* eventmgr,
-									 SCA_IObject* gameobj,
-									 const std::string& propname,
-									 const std::string& propval,
-									 const std::string& propmaxval,
-									 KX_PROPSENSOR_TYPE checktype)
-	: SCA_ISensor(gameobj,eventmgr),
-	  m_checktype(checktype),
-	  m_checkpropval(propval),
-	  m_checkpropmaxval(propmaxval),
-	  m_checkpropname(propname)
+SCA_PropertySensor::SCA_PropertySensor(SCA_EventManager *eventmgr,
+                                       SCA_IObject *gameobj,
+                                       const std::string& propname,
+                                       const std::string& propval,
+                                       const std::string& propmaxval,
+                                       KX_PROPSENSOR_TYPE checktype)
+	:SCA_ISensor(gameobj, eventmgr),
+	m_checktype(checktype),
+	m_checkpropval(propval),
+	m_checkpropmaxval(propmaxval),
+	m_checkpropname(propname)
 {
-	//CParser pars;
+	//EXP_Parser pars;
 	//pars.SetContext(this->AddRef());
-	//CValue* resultval = m_rightexpr->Calculate();
+	//EXP_Value* resultval = m_rightexpr->Calculate();
 
-	CValue* orgprop = GetParent()->FindIdentifier(m_checkpropname);
-	if (!orgprop->IsError())
-	{
+	EXP_Value *orgprop = GetParent()->FindIdentifier(m_checkpropname);
+	if (!orgprop->IsError()) {
 		m_previoustext = orgprop->GetText();
 	}
 	orgprop->Release();
@@ -71,17 +72,17 @@ SCA_PropertySensor::SCA_PropertySensor(SCA_EventManager* eventmgr,
 void SCA_PropertySensor::Init()
 {
 	m_recentresult = false;
-	m_lastresult = m_invert?true:false;
+	m_lastresult = m_invert ? true : false;
 	m_reset = true;
 }
 
-CValue* SCA_PropertySensor::GetReplica()
+EXP_Value *SCA_PropertySensor::GetReplica()
 {
-	SCA_PropertySensor* replica = new SCA_PropertySensor(*this);
+	SCA_PropertySensor *replica = new SCA_PropertySensor(*this);
 	// m_range_expr must be recalculated on replica!
 	replica->ProcessReplica();
 	replica->Init();
-	
+
 	return replica;
 }
 
@@ -90,8 +91,9 @@ CValue* SCA_PropertySensor::GetReplica()
 bool SCA_PropertySensor::IsPositiveTrigger()
 {
 	bool result = m_recentresult;//CheckPropertyCondition();
-	if (m_invert)
+	if (m_invert) {
 		result = !result;
+	}
 
 	return result;
 }
@@ -108,10 +110,9 @@ bool SCA_PropertySensor::Evaluate()
 {
 	bool result = CheckPropertyCondition();
 	bool reset = m_reset && m_level;
-	
+
 	m_reset = false;
-	if (m_lastresult!=result)
-	{
+	if (m_lastresult != result) {
 		m_lastresult = result;
 		return true;
 	}
@@ -119,58 +120,58 @@ bool SCA_PropertySensor::Evaluate()
 }
 
 
-bool	SCA_PropertySensor::CheckPropertyCondition()
+bool SCA_PropertySensor::CheckPropertyCondition()
 {
-	m_recentresult=false;
-	bool result=false;
+	m_recentresult = false;
+	bool result = false;
 	bool reverse = false;
-	switch (m_checktype)
-	{
-	case KX_PROPSENSOR_NOTEQUAL:
-		reverse = true;
-		ATTR_FALLTHROUGH;
-	case KX_PROPSENSOR_EQUAL:
+	switch (m_checktype) {
+		case KX_PROPSENSOR_NOTEQUAL:
 		{
-			CValue* orgprop = GetParent()->FindIdentifier(m_checkpropname);
-			if (!orgprop->IsError())
-			{
+			reverse = true;
+			ATTR_FALLTHROUGH;
+		}
+		case KX_PROPSENSOR_EQUAL:
+		{
+			EXP_Value *orgprop = GetParent()->FindIdentifier(m_checkpropname);
+			if (!orgprop->IsError()) {
 				const std::string& testprop = orgprop->GetText();
 				// Force strings to upper case, to avoid confusion in
 				// bool tests. It's stupid the prop's identity is lost
 				// on the way here...
-				if ((testprop == CBoolValue::sTrueString) || (testprop == CBoolValue::sFalseString)) {
+				if ((testprop == EXP_BoolValue::sTrueString) || (testprop == EXP_BoolValue::sFalseString)) {
 					boost::to_upper(m_checkpropval);
 				}
 				result = (testprop == m_checkpropval);
-				
+
 				/* Patch: floating point values cant use strings usefully since you can have "0.0" == "0.0000"
 				 * this could be made into a generic Value class function for comparing values with a string.
 				 */
-				if (result==false && (orgprop->GetValueType() == VALUE_FLOAT_TYPE)) {
+				if (result == false && (orgprop->GetValueType() == VALUE_FLOAT_TYPE)) {
 					float f;
 					if (CM_StringTo(m_checkpropval, f)) {
-						result = (f == ((CFloatValue *)orgprop)->GetFloat());
+						result = (f == ((EXP_FloatValue *)orgprop)->GetFloat());
 					}
 				}
 				/* end patch */
 			}
 			orgprop->Release();
 
-			if (reverse)
+			if (reverse) {
 				result = !result;
+			}
 			break;
 
 		}
 
-	case KX_PROPSENSOR_EXPRESSION:
+		case KX_PROPSENSOR_EXPRESSION:
 		{
 			break;
 		}
-	case KX_PROPSENSOR_INTERVAL:
+		case KX_PROPSENSOR_INTERVAL:
 		{
-			CValue* orgprop = GetParent()->FindIdentifier(m_checkpropname);
-			if (!orgprop->IsError())
-			{
+			EXP_Value *orgprop = GetParent()->FindIdentifier(m_checkpropname);
+			if (!orgprop->IsError()) {
 				float min;
 				float max;
 				float val;
@@ -188,16 +189,14 @@ bool	SCA_PropertySensor::CheckPropertyCondition()
 			}
 			orgprop->Release();
 
-		break;
+			break;
 		}
-	case KX_PROPSENSOR_CHANGED:
+		case KX_PROPSENSOR_CHANGED:
 		{
-			CValue* orgprop = GetParent()->FindIdentifier(m_checkpropname);
-				
-			if (!orgprop->IsError())
-			{
-				if (m_previoustext != orgprop->GetText())
-				{
+			EXP_Value *orgprop = GetParent()->FindIdentifier(m_checkpropname);
+
+			if (!orgprop->IsError()) {
+				if (m_previoustext != orgprop->GetText()) {
 					m_previoustext = orgprop->GetText();
 					result = true;
 				}
@@ -206,14 +205,15 @@ bool	SCA_PropertySensor::CheckPropertyCondition()
 
 			break;
 		}
-	case KX_PROPSENSOR_LESSTHAN:
-		reverse = true;
-		ATTR_FALLTHROUGH;
-	case KX_PROPSENSOR_GREATERTHAN:
+		case KX_PROPSENSOR_LESSTHAN:
 		{
-			CValue* orgprop = GetParent()->FindIdentifier(m_checkpropname);
-			if (!orgprop->IsError())
-			{
+			reverse = true;
+			ATTR_FALLTHROUGH;
+		}
+		case KX_PROPSENSOR_GREATERTHAN:
+		{
+			EXP_Value *orgprop = GetParent()->FindIdentifier(m_checkpropname);
+			if (!orgprop->IsError()) {
 				float ref;
 				CM_StringTo(m_checkpropval, ref);
 				float val;
@@ -237,8 +237,8 @@ bool	SCA_PropertySensor::CheckPropertyCondition()
 
 			break;
 		}
-	default:
-		; /* error */
+		default:
+			; /* error */
 	}
 
 	//the concept of Edge and Level triggering has unwanted effect for KX_PROPSENSOR_CHANGED
@@ -248,9 +248,9 @@ bool	SCA_PropertySensor::CheckPropertyCondition()
 	return result;
 }
 
-CValue* SCA_PropertySensor::FindIdentifier(const std::string& identifiername)
+EXP_Value *SCA_PropertySensor::FindIdentifier(const std::string& identifiername)
 {
-	return  GetParent()->FindIdentifier(identifiername);
+	return GetParent()->FindIdentifier(identifiername);
 }
 
 #ifdef WITH_PYTHON
@@ -259,7 +259,7 @@ CValue* SCA_PropertySensor::FindIdentifier(const std::string& identifiername)
 /* Python functions                                                          */
 /* ------------------------------------------------------------------------- */
 
-int SCA_PropertySensor::validValueForProperty(PyObjectPlus *self, const PyAttributeDef*)
+int SCA_PropertySensor::validValueForProperty(EXP_PyObjectPlus *self, const PyAttributeDef *)
 {
 	/* If someone actually do type checking please make sure the 'max' and 'min'
 	 * are checked as well (currently they are calling the PrecalculateRangeExpression
@@ -273,7 +273,7 @@ int SCA_PropertySensor::validValueForProperty(PyObjectPlus *self, const PyAttrib
 PyTypeObject SCA_PropertySensor::Type = {
 	PyVarObject_HEAD_INIT(nullptr, 0)
 	"SCA_PropertySensor",
-	sizeof(PyObjectPlus_Proxy),
+	sizeof(EXP_PyObjectPlus_Proxy),
 	0,
 	py_base_dealloc,
 	0,
@@ -281,28 +281,28 @@ PyTypeObject SCA_PropertySensor::Type = {
 	0,
 	0,
 	py_base_repr,
-	0,0,0,0,0,0,0,0,0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0,
 	Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
-	0,0,0,0,0,0,0,
+	0, 0, 0, 0, 0, 0, 0,
 	Methods,
 	0,
 	0,
 	&SCA_ISensor::Type,
-	0,0,0,0,0,0,
+	0, 0, 0, 0, 0, 0,
 	py_base_new
 };
 
 PyMethodDef SCA_PropertySensor::Methods[] = {
-	{nullptr,nullptr} //Sentinel
+	{nullptr, nullptr} //Sentinel
 };
 
 PyAttributeDef SCA_PropertySensor::Attributes[] = {
-	KX_PYATTRIBUTE_INT_RW("mode",KX_PROPSENSOR_NODEF,KX_PROPSENSOR_MAX-1,false,SCA_PropertySensor,m_checktype),
-	KX_PYATTRIBUTE_STRING_RW_CHECK("propName",0,MAX_PROP_NAME,false,SCA_PropertySensor,m_checkpropname,CheckProperty),
-	KX_PYATTRIBUTE_STRING_RW_CHECK("value",0,100,false,SCA_PropertySensor,m_checkpropval,validValueForProperty),
-	KX_PYATTRIBUTE_STRING_RW_CHECK("min",0,100,false,SCA_PropertySensor,m_checkpropval,validValueForProperty),
-	KX_PYATTRIBUTE_STRING_RW_CHECK("max",0,100,false,SCA_PropertySensor,m_checkpropmaxval,validValueForProperty),
-	KX_PYATTRIBUTE_NULL	//Sentinel
+	EXP_PYATTRIBUTE_INT_RW("mode", KX_PROPSENSOR_NODEF, KX_PROPSENSOR_MAX - 1, false, SCA_PropertySensor, m_checktype),
+	EXP_PYATTRIBUTE_STRING_RW_CHECK("propName", 0, MAX_PROP_NAME, false, SCA_PropertySensor, m_checkpropname, CheckProperty),
+	EXP_PYATTRIBUTE_STRING_RW_CHECK("value", 0, 100, false, SCA_PropertySensor, m_checkpropval, validValueForProperty),
+	EXP_PYATTRIBUTE_STRING_RW_CHECK("min", 0, 100, false, SCA_PropertySensor, m_checkpropval, validValueForProperty),
+	EXP_PYATTRIBUTE_STRING_RW_CHECK("max", 0, 100, false, SCA_PropertySensor, m_checkpropmaxval, validValueForProperty),
+	EXP_PYATTRIBUTE_NULL    //Sentinel
 };
 
 #endif // WITH_PYTHON

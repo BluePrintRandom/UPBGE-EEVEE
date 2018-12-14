@@ -29,7 +29,6 @@
 #endif
 
 #include "LA_Launcher.h"
-#include "LA_System.h"
 #include "LA_SystemCommandLine.h"
 
 #include "RAS_ICanvas.h"
@@ -37,12 +36,14 @@
 #include "GPG_Canvas.h"
 
 #include "KX_KetsjiEngine.h"
+#include "KX_Scene.h"
 #include "KX_Globals.h"
 #include "KX_PythonInit.h"
 #include "KX_PythonMain.h"
 #include "KX_PyConstraintBinding.h"
 
-#include "KX_BlenderConverter.h"
+#include "BL_Converter.h"
+#include "BL_SceneConverter.h"
 #include "BL_BlenderDataConversion.h"
 
 #include "KX_NetworkMessageManager.h"
@@ -63,47 +64,49 @@
 
 extern "C" {
 #  include "GPU_extensions.h"
-#  include "GPU_framebuffer.h"
 
-#  include "BKE_idprop.h"
-#  include "BKE_layer.h"
 #  include "BKE_sound.h"
 #  include "BKE_main.h"
-
-#  include "../draw/DRW_engine.h"
 
 #  include "DNA_scene_types.h"
 #  include "DNA_material_types.h"
 
 #  include "wm_event_types.h"
-
-#  include "MEM_guardedalloc.h"
 }
 
 #ifdef WITH_AUDASPACE
 #  include AUD_DEVICE_H
 #endif
 
+#ifdef WITH_PYTHON
+
+struct PythonMainLoopState
+{
+	KX_ExitInfo m_exitInfo;
+	LA_Launcher *m_launcher;
+};
+
+#endif
+
 LA_Launcher::LA_Launcher(GHOST_ISystem *system, Main *maggie, Scene *scene, GlobalSettings *gs,
-						 RAS_Rasterizer::StereoMode stereoMode, int samples, int argc, char **argv)
-	:m_startSceneName(scene->id.name + 2), 
+                         RAS_Rasterizer::StereoMode stereoMode, int samples, bool alwaysUseExpandFraming, int argc, char **argv)
+	:m_startSceneName(scene->id.name + 2),
 	m_startScene(scene),
 	m_maggie(maggie),
 	m_kxStartScene(nullptr),
-	m_exitRequested(KX_ExitRequest::NO_REQUEST),
 	m_globalSettings(gs),
 	m_system(system),
 	m_ketsjiEngine(nullptr),
-	m_kxsystem(nullptr), 
 	m_inputDevice(nullptr),
 	m_eventConsumer(nullptr),
 	m_canvas(nullptr),
-	m_rasterizer(nullptr), 
+	m_rasterizer(nullptr),
 	m_converter(nullptr),
 #ifdef WITH_PYTHON
 	m_globalDict(nullptr),
-	m_gameLogic(nullptr),
 #endif  // WITH_PYTHON
+	m_alwaysUseExpandFraming(alwaysUseExpandFraming),
+	m_camZoom(1.0f),
 	m_samples(samples),
 	m_stereoMode(stereoMode),
 	m_argc(argc),
@@ -123,19 +126,9 @@ void LA_Launcher::SetPythonGlobalDict(PyObject *globalDict)
 }
 #endif  // WITH_PYTHON
 
-KX_ExitRequest LA_Launcher::GetExitRequested()
-{
-	return m_exitRequested;
-}
-
 GlobalSettings *LA_Launcher::GetGlobalSettings()
 {
 	return m_ketsjiEngine->GetGlobalSettings();
-}
-
-const std::string& LA_Launcher::GetExitString()
-{
-	return m_exitString;
 }
 
 void LA_Launcher::InitEngine()
@@ -153,19 +146,38 @@ void LA_Launcher::InitEngine()
 	// WARNING: Fixed time is the opposite of fixed framerate.
 	bool fixed_framerate = (SYS_GetCommandLineInt(syshandle, "fixedtime", (gm.flag & GAME_ENABLE_ALL_FRAMES)) == 0);
 	bool frameRate = (SYS_GetCommandLineInt(syshandle, "show_framerate", 0) != 0);
+	bool renderQueries = (SYS_GetCommandLineInt(syshandle, "show_render_queries", 0) != 0);
+	short showBoundingBox = SYS_GetCommandLineInt(syshandle, "show_bounding_box", 0/*gm.showBoundingBox*/);
+	short showArmatures = SYS_GetCommandLineInt(syshandle, "show_armatures", 0/*gm.showArmatures*/);
+	short showCameraFrustum = SYS_GetCommandLineInt(syshandle, "show_camera_frustum", 0/*gm.showCameraFrustum*/);
+	short showShadowFrustum = SYS_GetCommandLineInt(syshandle, "show_shadow_frustum", 0/*gm.showShadowFrustum*/);
 	bool nodepwarnings = (SYS_GetCommandLineInt(syshandle, "ignore_deprecation_warnings", 1) != 0);
 	bool restrictAnimFPS = (gm.flag & GAME_RESTRICT_ANIM_UPDATES) != 0;
 
 	const KX_KetsjiEngine::FlagType flags = (KX_KetsjiEngine::FlagType)
-		((fixed_framerate ? KX_KetsjiEngine::FIXED_FRAMERATE : 0) |
-		(frameRate ? KX_KetsjiEngine::SHOW_FRAMERATE : 0) |
-		(restrictAnimFPS ? KX_KetsjiEngine::RESTRICT_ANIMATION : 0) |
-		(properties ? KX_KetsjiEngine::SHOW_DEBUG_PROPERTIES : 0) |
-		(profile ? KX_KetsjiEngine::SHOW_PROFILE : 0));
+	                                        ((fixed_framerate ? KX_KetsjiEngine::FIXED_FRAMERATE : 0) |
+	                                         (frameRate ? KX_KetsjiEngine::SHOW_FRAMERATE : 0) |
+	                                         (renderQueries ? KX_KetsjiEngine::SHOW_RENDER_QUERIES : 0) |
+	                                         (restrictAnimFPS ? KX_KetsjiEngine::RESTRICT_ANIMATION : 0) |
+	                                         (properties ? KX_KetsjiEngine::SHOW_DEBUG_PROPERTIES : 0) |
+	                                         (profile ? KX_KetsjiEngine::SHOW_PROFILE : 0));
+
+	//// Setup python console keys used as shortcut.
+	//for (unsigned short i = 0; i < 4; ++i) {
+	//	if (gm.pythonkeys[i] != EVENT_NONE) {
+	//		m_pythonConsole.keys.push_back(BL_ConvertKeyCode(gm.pythonkeys[i]));
+	//	}
+	//}
+	m_pythonConsole.use = false; // (gm.flag & GAME_PYTHON_CONSOLE);
 
 	m_rasterizer = new RAS_Rasterizer();
 
 	// Stereo parameters - Eye Separation from the UI - stereomode from the command-line/UI
+	static const RAS_Rasterizer::ColorManagement colorManagementTable[] = {
+		RAS_Rasterizer::RAS_COLOR_MANAGEMENT_LINEAR, // GAME_COLOR_MANAGEMENT_LINEAR
+		RAS_Rasterizer::RAS_COLOR_MANAGEMENT_SRGB // GAME_COLOR_MANAGEMENT_SRGB
+	};
+	m_rasterizer->SetColorManagment(colorManagementTable[RAS_Rasterizer::RAS_COLOR_MANAGEMENT_SRGB/*gm.colorManagement*/]);
 	m_rasterizer->SetStereoMode(m_stereoMode);
 	m_rasterizer->SetEyeSeparation(m_startScene->gm.eyeseparation);
 	m_rasterizer->SetDrawingMode(GetRasterizerDrawMode());
@@ -176,21 +188,38 @@ void LA_Launcher::InitEngine()
 	m_savedData.mipmap = m_rasterizer->GetMipmapping();
 
 	// Create the canvas, rasterizer and rendertools.
-	m_canvas = CreateCanvas();
+	m_canvas = CreateCanvas(m_rasterizer);
 
-	// Copy current vsync mode to restore at the game end.
-	m_canvas->GetSwapInterval(m_savedData.vsync);
+	static const RAS_ICanvas::SwapControl swapControlTable[] = {
+		RAS_ICanvas::VSYNC_ON, // VSYNC_ON
+		RAS_ICanvas::VSYNC_OFF, // VSYNC_OFF
+		RAS_ICanvas::VSYNC_ADAPTIVE // VSYNC_ADAPTIVE
+	};
 
-	if (gm.vsync == VSYNC_ADAPTIVE) {
-		m_canvas->SetSwapInterval(-1);
-	}
-	else {
-		m_canvas->SetSwapInterval((gm.vsync == VSYNC_ON) ? 1 : 0);
-	}
+	m_canvas->SetSwapControl(swapControlTable[gm.vsync]);
 
 	// Set canvas multisamples.
 	m_canvas->SetSamples(m_samples);
-	m_canvas->SetHdrType(RAS_Rasterizer::RAS_HDR_NONE);
+
+	RAS_Rasterizer::HdrType hdrtype = RAS_Rasterizer::RAS_HDR_NONE;
+	/*switch (gm.hdr) {
+		case GAME_HDR_NONE:
+		{
+			hdrtype = RAS_Rasterizer::RAS_HDR_NONE;
+			break;
+		}
+		case GAME_HDR_HALF_FLOAT:
+		{
+			hdrtype = RAS_Rasterizer::RAS_HDR_HALF_FLOAT;
+			break;
+		}
+		case GAME_HDR_FULL_FLOAT:
+		{
+			hdrtype = RAS_Rasterizer::RAS_HDR_FULL_FLOAT;
+			break;
+		}
+	}*/
+	m_canvas->SetHdrType(hdrtype);
 
 	m_canvas->Init();
 	if (gm.flag & GAME_SHOW_MOUSE) {
@@ -205,13 +234,10 @@ void LA_Launcher::InitEngine()
 	m_eventConsumer = new DEV_EventConsumer(m_system, m_inputDevice, m_canvas);
 	m_system->addEventConsumer(m_eventConsumer);
 
-	// Create a ketsjisystem (only needed for timing and stuff).
-	m_kxsystem = new LA_System();
-
 	m_networkMessageManager = new KX_NetworkMessageManager();
-	
+
 	// Create the ketsjiengine.
-	m_ketsjiEngine = new KX_KetsjiEngine(m_kxsystem);
+	m_ketsjiEngine = new KX_KetsjiEngine();
 	KX_SetActiveEngine(m_ketsjiEngine);
 
 	// Set the devices.
@@ -222,41 +248,41 @@ void LA_Launcher::InitEngine()
 
 	DEV_Joystick::Init();
 
-	m_ketsjiEngine->SetExitKey(ConvertKeyCode(gm.exitkey));
+	m_ketsjiEngine->SetExitKey(BL_ConvertKeyCode(gm.exitkey));
 #ifdef WITH_PYTHON
-	CValue::SetDeprecationWarnings(nodepwarnings);
+	EXP_Value::SetDeprecationWarnings(nodepwarnings);
 #else
 	(void)nodepwarnings;
 #endif
 
 	m_ketsjiEngine->SetFlag(flags, true);
 	m_ketsjiEngine->SetRender(true);
+	m_ketsjiEngine->SetShowBoundingBox((KX_DebugOption)showBoundingBox);
+	m_ketsjiEngine->SetShowArmatures((KX_DebugOption)showArmatures);
+	m_ketsjiEngine->SetShowCameraFrustum((KX_DebugOption)showCameraFrustum);
+	m_ketsjiEngine->SetShowShadowFrustum((KX_DebugOption)showShadowFrustum);
 
 	m_ketsjiEngine->SetTicRate(gm.ticrate);
 	m_ketsjiEngine->SetMaxLogicFrame(gm.maxlogicstep);
 	m_ketsjiEngine->SetMaxPhysicsFrame(gm.maxphystep);
+	m_ketsjiEngine->SetTimeScale(1.0/*gm.timeScale*/);
 
 	// Set the global settings (carried over if restart/load new files).
 	m_ketsjiEngine->SetGlobalSettings(m_globalSettings);
 
-	m_rasterizer->Init();
 	InitCamera();
 
 #ifdef WITH_PYTHON
 	KX_SetMainPath(std::string(m_maggie->name));
 	// Some python things.
-	setupGamePython(m_ketsjiEngine, m_maggie, m_globalDict, &m_gameLogic, m_argc, m_argv);
+	initGamePython(m_maggie, m_globalDict);
 #endif  // WITH_PYTHON
 
 	// Create a scene converter, create and convert the stratingscene.
-	m_converter = new KX_BlenderConverter(m_maggie, m_ketsjiEngine);
+	m_converter = new BL_Converter(m_maggie, m_ketsjiEngine, m_alwaysUseExpandFraming, m_camZoom);
 	m_ketsjiEngine->SetConverter(m_converter);
 
-	m_kxStartScene = new KX_Scene(m_inputDevice,
-		m_startSceneName,
-		m_startScene,
-		m_canvas,
-		m_networkMessageManager);
+	m_kxStartScene = m_ketsjiEngine->CreateScene(m_startScene);
 
 	KX_SetActiveScene(m_kxStartScene);
 
@@ -269,16 +295,17 @@ void LA_Launcher::InitEngine()
 	AUD_Device_setDistanceModel(device, AUD_DistanceModel(m_startScene->audio.distance_model));
 #endif  // WITH_AUDASPACE
 
-	m_converter->SetAlwaysUseExpandFraming(GetUseAlwaysExpandFraming());
+	// Convert scene data.
+	m_converter->ConvertScene(m_kxStartScene);
 
-	m_converter->ConvertScene(m_kxStartScene, m_rasterizer, m_canvas, false);
 	m_ketsjiEngine->AddScene(m_kxStartScene);
 	m_kxStartScene->Release();
 
+	m_rasterizer->Init();
 	m_ketsjiEngine->StartEngine();
 
-	/* Set the animation playback rate for ipo's and actions the 
-	 * framerate below should patch with FPS macro defined in blendef.h 
+	/* Set the animation playback rate for ipo's and actions the
+	 * framerate below should patch with FPS macro defined in blendef.h
 	 * Could be in StartEngine set the framerate, we need the scene to do this.
 	 */
 	Scene *scene = m_kxStartScene->GetBlenderScene(); // needed for macro
@@ -295,33 +322,10 @@ void LA_Launcher::ExitEngine()
 	DEV_Joystick::Close();
 	m_ketsjiEngine->StopEngine();
 
-#ifdef WITH_PYTHON
-
-	/* Clears the dictionary by hand:
-	 * This prevents, extra references to global variables
-	 * inside the GameLogic dictionary when the python interpreter is finalized.
-	 * which allows the scene to safely delete them :)
-	 * see: (space.c)->start_game
-	 */
-
-	PyDict_Clear(PyModule_GetDict(m_gameLogic));
-
-#endif  // WITH_PYTHON
-
-	// Do we will stop ?
-	if ((m_exitRequested != KX_ExitRequest::RESTART_GAME) && (m_exitRequested != KX_ExitRequest::START_OTHER_GAME)) {
-		// Then set the cursor back to normal here to avoid set the cursor visible between two game load.
-		m_canvas->SetMouseState(RAS_ICanvas::MOUSE_NORMAL);
-	}
-
 	// Set anisotropic settign back to its original value.
 	m_rasterizer->SetAnisotropicFiltering(m_savedData.anisotropic);
-
 	// Set mipmap setting back to its original value.
 	m_rasterizer->SetMipmapping(m_savedData.mipmap);
-
-	// Set vsync mode back to original value.
-	m_canvas->SetSwapInterval(m_savedData.vsync);
 
 	if (m_converter) {
 		delete m_converter;
@@ -330,10 +334,6 @@ void LA_Launcher::ExitEngine()
 	if (m_ketsjiEngine) {
 		delete m_ketsjiEngine;
 		m_ketsjiEngine = nullptr;
-	}
-	if (m_kxsystem) {
-		delete m_kxsystem;
-		m_kxsystem = nullptr;
 	}
 	if (m_inputDevice) {
 		delete m_inputDevice;
@@ -357,14 +357,12 @@ void LA_Launcher::ExitEngine()
 	}
 
 	// Call this after we're sure nothing needs Python anymore (e.g., destructors).
-	ExitPython();
+	exitGamePython();
 
 #ifdef WITH_AUDASPACE
 	// Stop all remaining playing sounds.
 	AUD_Device_stopAll(BKE_sound_get_device());
 #endif  // WITH_AUDASPACE
-
-	m_exitRequested = KX_ExitRequest::NO_REQUEST;
 }
 
 #ifdef WITH_PYTHON
@@ -383,7 +381,7 @@ void LA_Launcher::HandlePythonConsole()
 	}
 
 #ifdef WIN32 // We Use this function to avoid Blender window freeze when we launch python console from Windows.
-       DisableProcessWindowsGhosting();
+	DisableProcessWindowsGhosting();
 #endif
 
 	// Pop the console window for windows.
@@ -393,6 +391,9 @@ void LA_Launcher::HandlePythonConsole()
 
 	// Hide the console window for windows.
 	m_system->toggleConsole(0);
+
+	// Set the game engine windows on top of all other and active.
+	SetWindowOrder(1);
 
 
 	/* As we show the console, the release events of the shortcut keys can be not handled by the engine.
@@ -406,16 +407,13 @@ void LA_Launcher::HandlePythonConsole()
 
 int LA_Launcher::PythonEngineNextFrame(void *state)
 {
-	LA_Launcher *launcher = (LA_Launcher *)state;
-	bool run = launcher->EngineNextFrame();
-	if (run) {
+	PythonMainLoopState *pstate = (PythonMainLoopState *)state;
+	pstate->m_exitInfo = pstate->m_launcher->EngineNextFrame();
+	if (pstate->m_exitInfo.m_code == KX_ExitInfo::NO_REQUEST) {
 		return 0;
 	}
 	else {
-		KX_ExitRequest exitcode = launcher->GetExitRequested();
-		if (exitcode != KX_ExitRequest::NO_REQUEST) {
-			CM_Error("Exit code " << (int)exitcode << ": " << launcher->GetExitString());
-		}
+		CM_Error("Exit code " << (int)pstate->m_exitInfo.m_code << ": " << pstate->m_exitInfo.m_fileName);
 		return 1;
 	}
 }
@@ -427,6 +425,8 @@ void LA_Launcher::RenderEngine()
 	// Render the frame.
 	m_ketsjiEngine->Render();
 }
+
+#ifdef WITH_PYTHON
 
 bool LA_Launcher::GetPythonMainLoopCode(std::string& pythonCode, std::string& pythonFileName)
 {
@@ -448,50 +448,46 @@ void LA_Launcher::RunPythonMainLoop(const std::string& pythonCode)
 	PyRun_SimpleString(pythonCode.c_str());
 }
 
-bool LA_Launcher::EngineNextFrame()
+#endif  // WITH_PYTHON
+
+KX_ExitInfo LA_Launcher::EngineNextFrame()
 {
-	// Update the state of the game engine.
-	if (m_kxsystem && m_exitRequested == KX_ExitRequest::NO_REQUEST) {
-		// First check if we want to exit.
-		m_exitRequested = m_ketsjiEngine->GetExitCode();
-
 #ifdef WITH_PYTHON
-		// Check if we can create a python console debugging.
-		HandlePythonConsole();
+	// Check if we can create a python console debugging.
+	HandlePythonConsole();
 #endif
+	// Kick the engine.
+	bool renderFrame = m_ketsjiEngine->NextFrame();
 
-		// Kick the engine.
-		bool renderFrame = m_ketsjiEngine->NextFrame();
+	// First check if we want to exit.
+	KX_ExitInfo exitInfo = m_ketsjiEngine->GetExitInfo();
+
+	if (exitInfo.m_code == KX_ExitInfo::NO_REQUEST) {
 		if (renderFrame) {
 			RenderEngine();
 		}
-
-		m_system->processEvents(false);
-		m_system->dispatchEvents();
-
-		if (m_inputDevice->GetInput((SCA_IInputDevice::SCA_EnumInputs)m_ketsjiEngine->GetExitKey()).Find(SCA_InputEvent::ACTIVE) &&
-			!m_inputDevice->GetHookExitKey())
-		{
-			m_inputDevice->ConvertEvent((SCA_IInputDevice::SCA_EnumInputs)m_ketsjiEngine->GetExitKey(), 0, 0);
-			m_exitRequested = KX_ExitRequest::BLENDER_ESC;
-		}
-		else if (m_inputDevice->GetInput(SCA_IInputDevice::WINCLOSE).Find(SCA_InputEvent::ACTIVE) ||
-			m_inputDevice->GetInput(SCA_IInputDevice::WINQUIT).Find(SCA_InputEvent::ACTIVE))
-		{
-			m_inputDevice->ConvertEvent(SCA_IInputDevice::WINCLOSE, 0, 0);
-			m_inputDevice->ConvertEvent(SCA_IInputDevice::WINQUIT, 0, 0);
-			m_exitRequested = KX_ExitRequest::OUTSIDE;
-		}
 	}
-	m_exitString = m_ketsjiEngine->GetExitString();
 
-	if (m_exitRequested != KX_ExitRequest::NO_REQUEST) {
-		return false;
+	m_system->processEvents(false);
+	m_system->dispatchEvents();
+
+	SCA_IInputDevice::SCA_EnumInputs exitKey = m_ketsjiEngine->GetExitKey();
+	if (m_inputDevice->GetInput(exitKey).Find(SCA_InputEvent::ACTIVE) &&
+	    !m_inputDevice->GetHookExitKey()) {
+		m_inputDevice->ConvertEvent(exitKey, 0, 0);
+		exitInfo.m_code = KX_ExitInfo::BLENDER_ESC;
 	}
-	return true;
+	else if (m_inputDevice->GetInput(SCA_IInputDevice::WINCLOSE).Find(SCA_InputEvent::ACTIVE) ||
+	         m_inputDevice->GetInput(SCA_IInputDevice::WINQUIT).Find(SCA_InputEvent::ACTIVE)) {
+		m_inputDevice->ConvertEvent(SCA_IInputDevice::WINCLOSE, 0, 0);
+		m_inputDevice->ConvertEvent(SCA_IInputDevice::WINQUIT, 0, 0);
+		exitInfo.m_code = KX_ExitInfo::OUTSIDE;
+	}
+
+	return exitInfo;
 }
 
-void LA_Launcher::EngineMainLoop()
+KX_ExitInfo LA_Launcher::EngineMainLoop()
 {
 #ifdef WITH_PYTHON
 	std::string pythonCode;
@@ -499,26 +495,31 @@ void LA_Launcher::EngineMainLoop()
 	if (GetPythonMainLoopCode(pythonCode, pythonFileName)) {
 		// Set python environement variable.
 		KX_SetActiveScene(m_kxStartScene);
-		PHY_SetActiveEnvironment(m_kxStartScene->GetPhysicsEnvironment());
 
-		pynextframestate.state = this;
+		PythonMainLoopState state;
+		state.m_launcher = this;
+		pynextframestate.state = &state;
 		pynextframestate.func = &PythonEngineNextFrame;
 
 		CM_Debug("Yielding control to Python script '" << pythonFileName << "'...");
 		RunPythonMainLoop(pythonCode);
 		CM_Debug("Exit Python script '" << pythonFileName << "'");
+
+		return state.m_exitInfo;
 	}
 	else {
 		pynextframestate.state = nullptr;
 		pynextframestate.func = nullptr;
 #endif  // WITH_PYTHON
 
-		bool run = true;
-		while (run) {
-			run  = EngineNextFrame();
-		}
+	KX_ExitInfo exitInfo;
+	while (exitInfo.m_code == KX_ExitInfo::NO_REQUEST) {
+		exitInfo = EngineNextFrame();
+	}
+
+	return exitInfo;
 
 #ifdef WITH_PYTHON
-	}
+}
 #endif
 }

@@ -35,17 +35,18 @@ set(INC
 	../../GameLogic
 	../../Ketsji
 	../../Rasterizer
+	../../Rasterizer/Node
 	../../SceneGraph
 	../../../blender/blenkernel
 	../../../blender/blenlib
-	../../../blender/draw/engines/eevee/
 	../../../blender/gpu
 	../../../blender/makesdna
 	../../../../intern/guardedalloc
 )
 
 set(INC_SYS
-	../../../../intern/moto/include
+	../../../../intern/debugbreak
+	../../../../intern/mathfu
 	${PYTHON_INCLUDE_DIRS}
 	${BOOST_INCLUDE_DIR}
 )

@@ -37,10 +37,8 @@
 #endif
 
 #include "BL_ShapeDeformer.h"
-#include "BL_DeformableGameObject.h"
-#include <vector>
 
-class RAS_MeshObject;
+class RAS_Mesh;
 struct DerivedMesh;
 struct Object;
 
@@ -50,55 +48,32 @@ public:
 	static bool HasCompatibleDeformer(Object *ob);
 	static bool HasArmatureDeformer(Object *ob);
 
-	BL_ModifierDeformer(BL_DeformableGameObject *gameobj,
-						Scene *scene,
-						Object *bmeshobj,
-						RAS_MeshObject *mesh)
-		:BL_ShapeDeformer(gameobj, bmeshobj, mesh),
-		m_lastModifierUpdate(-1.0),
-		m_scene(scene),
-		m_dm(nullptr)
-	{
-		m_recalcNormal = false;
-	}
-
-	/* this second constructor is needed for making a mesh deformable on the fly. */
-	BL_ModifierDeformer(BL_DeformableGameObject *gameobj,
+	BL_ModifierDeformer(KX_GameObject *gameobj,
 						Scene *scene,
 						Object *bmeshobj_old,
 						Object *bmeshobj_new,
-						RAS_MeshObject *mesh,
-						bool release_object,
-						BL_ArmatureObject *arma = nullptr)
-		:BL_ShapeDeformer(gameobj, bmeshobj_old, bmeshobj_new, mesh, release_object, false, arma),
+						RAS_Mesh *mesh,
+						BL_ArmatureObject *arma)
+		:BL_ShapeDeformer(gameobj, bmeshobj_old, bmeshobj_new, mesh, arma),
 		m_lastModifierUpdate(-1),
 		m_scene(scene),
 		m_dm(nullptr)
 	{
 	}
 
-	virtual void ProcessReplica();
-	virtual RAS_Deformer *GetReplica();
 	virtual ~BL_ModifierDeformer();
-	virtual bool UseVertexArray()
-	{
-		return false;
-	}
 
 	bool Update();
-	virtual bool Apply(RAS_MeshMaterial *meshmat, RAS_IDisplayArray *array);
+	virtual void Apply(RAS_DisplayArray *array);
 	void ForceUpdate()
 	{
 		m_lastModifierUpdate = -1.0;
 	}
-	virtual DerivedMesh *GetFinalMesh()
-	{
-		return m_dm;
-	}
-	// The derived mesh returned by this function must be released!
-	virtual DerivedMesh *GetPhysicsMesh();
 
 protected:
+	void UpdateBounds();
+	virtual void UpdateTransverts();
+
 	double m_lastModifierUpdate;
 	Scene *m_scene;
 	DerivedMesh *m_dm;

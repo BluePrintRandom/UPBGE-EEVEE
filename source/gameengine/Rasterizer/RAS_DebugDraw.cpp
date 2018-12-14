@@ -25,136 +25,100 @@
  */
 
 #include "RAS_DebugDraw.h"
-#include "RAS_OpenGLDebugDraw.h"
+#include "RAS_Rasterizer.h"
 
-#include "MT_Frustum.h"
+RAS_DebugDraw::Shape::Shape(const mt::vec4& color)
+{
+	color.Pack(m_color);
+}
+
+RAS_DebugDraw::Line::Line(const mt::vec3& from, const mt::vec3& to, const mt::vec4& color)
+{
+	color.Pack(m_color);
+	color.Pack(m_color2);
+	from.Pack(m_from);
+	to.Pack(m_to);
+}
+
+RAS_DebugDraw::Aabb::Aabb(const mt::vec3& pos, const mt::mat3& rot, const mt::vec3& min, const mt::vec3& max, const mt::vec4& color)
+	:Shape(color)
+{
+	const mt::vec3 diag = (max - min) * 0.5f;
+	const mt::vec3 center = (min + max) * 0.5f;
+
+	const mt::mat3x4 trans(rot, rot *center + pos, diag);
+	trans.PackFromAffineTransform(m_mat);
+}
+
+RAS_DebugDraw::Frustum::Frustum(const mt::mat4& persmat, const mt::vec4& insideColor, const mt::vec4& outsideColor,
+                                const mt::vec4& wireColor)
+{
+	persmat.Pack(m_persMat);
+	insideColor.Pack(m_insideColor);
+	outsideColor.Pack(m_outsideColor);
+	wireColor.Pack(m_wireColor);
+}
+
+RAS_DebugDraw::Text2d::Text2d(const std::string& text, const mt::vec2& pos, const mt::vec4& color)
+	:Shape(color),
+	m_text(text)
+{
+	pos.Pack(m_pos);
+}
+
+RAS_DebugDraw::Box2d::Box2d(const mt::vec2& pos, const mt::vec2& size, const mt::vec4& color)
+	:Shape(color)
+{
+	pos.Pack(m_pos);
+
+	m_size[0] = size.x + 1;
+	m_size[1] = -size.y;
+}
 
 RAS_DebugDraw::RAS_DebugDraw()
 {
-	m_impl = new RAS_OpenGLDebugDraw();
-}
-RAS_DebugDraw::~RAS_DebugDraw()
-{
-	delete m_impl;
 }
 
-RAS_DebugDraw::Shape::Shape(const MT_Vector4& color)
-	:m_color(color)
-{
-}
+RAS_DebugDraw::~RAS_DebugDraw() = default;
 
-RAS_DebugDraw::Line::Line(const MT_Vector3& from, const MT_Vector3& to, const MT_Vector4& color)
-	:Shape(color),
-	m_from(from),
-	m_to(to)
-{
-}
-
-RAS_DebugDraw::Circle::Circle(const MT_Vector3& center, const MT_Vector3& normal, float radius, int sector, const MT_Vector4& color)
-	:Shape(color),
-	m_center(center),
-	m_normal(normal),
-	m_radius(radius),
-	m_sector(sector)
-{
-}
-
-RAS_DebugDraw::Aabb::Aabb(const MT_Vector3& pos, const MT_Matrix3x3& rot, const MT_Vector3& min, const MT_Vector3& max, const MT_Vector4& color)
-	:Shape(color),
-	m_pos(pos),
-	m_rot(rot),
-	m_min(min),
-	m_max(max)
-{
-}
-
-RAS_DebugDraw::Box::Box(const std::array<MT_Vector3, 8>& vertices, const MT_Vector4& color)
-	:Shape(color),
-	m_vertices(vertices)
-{
-}
-
-RAS_DebugDraw::SolidBox::SolidBox(const MT_Vector4& insideColor, const MT_Vector4& outsideColor, const std::array<MT_Vector3, 8>& vertices, const MT_Vector4& color)
-	:Box(vertices, color),
-	m_insideColor(insideColor),
-	m_outsideColor(outsideColor)
-{
-}
-
-RAS_DebugDraw::Text2D::Text2D(const std::string& text, const MT_Vector2& pos, const MT_Vector4& color)
-	:Shape(color),
-	m_text(text),
-	m_pos(pos)
-{
-}
-
-RAS_DebugDraw::Box2D::Box2D(const MT_Vector2& pos, const MT_Vector2& size, const MT_Vector4& color)
-	:Shape(color),
-	m_pos(pos),
-	m_size(size)
-{
-}
-
-void RAS_DebugDraw::DrawLine(const MT_Vector3 &from, const MT_Vector3 &to, const MT_Vector4 &color)
+void RAS_DebugDraw::DrawLine(const mt::vec3 &from, const mt::vec3 &to, const mt::vec4 &color)
 {
 	m_lines.emplace_back(from, to, color);
 }
 
-void RAS_DebugDraw::DrawCircle(const MT_Vector3 &center, const MT_Scalar radius,
-		const MT_Vector4 &color, const MT_Vector3 &normal, int nsector)
-{
-	m_circles.emplace_back(center, normal, radius, nsector, color);
-}
-
-void RAS_DebugDraw::DrawAabb(const MT_Vector3& pos, const MT_Matrix3x3& rot,
-		const MT_Vector3& min, const MT_Vector3& max, const MT_Vector4& color)
+void RAS_DebugDraw::DrawAabb(const mt::vec3& pos, const mt::mat3& rot,
+                             const mt::vec3& min, const mt::vec3& max, const mt::vec4& color)
 {
 	m_aabbs.emplace_back(pos, rot, min, max, color);
 }
 
-void RAS_DebugDraw::DrawBox(const std::array<MT_Vector3, 8>& vertices, const MT_Vector4& color)
+void RAS_DebugDraw::DrawCameraFrustum(const mt::mat4& persmat)
 {
-	m_boxes.emplace_back(vertices, color);
+	m_frustums.emplace_back(persmat.Inverse(), mt::vec4(0.4f, 0.4f, 0.4f, 0.4f), mt::vec4(0.0f, 0.0f, 0.0f, 0.4f),
+	                        mt::vec4(0.8f, 0.5f, 0.0f, 1.0f));
 }
 
-void RAS_DebugDraw::DrawSolidBox(const std::array<MT_Vector3, 8>& vertices, const MT_Vector4& insideColor,
-		const MT_Vector4& outsideColor, const MT_Vector4& lineColor)
+void RAS_DebugDraw::RenderBox2d(const mt::vec2& pos, const mt::vec2& size, const mt::vec4& color)
 {
-	m_solidBoxes.emplace_back(insideColor, outsideColor, vertices, lineColor);
+	m_boxes2d.emplace_back(pos, size, color);
 }
 
-void RAS_DebugDraw::DrawCameraFrustum(const MT_Matrix4x4& persmat)
+void RAS_DebugDraw::RenderText2d(const std::string& text, const mt::vec2& size, const mt::vec4& color)
 {
-	std::array<MT_Vector3, 8> box;
-	MT_FrustumBox(persmat.inverse(), box);
-
-	DrawSolidBox(box, MT_Vector4(0.4f, 0.4f, 0.4f, 0.4f), MT_Vector4(0.0f, 0.0f, 0.0f, 0.4f),
-		MT_Vector4(0.8f, 0.5f, 0.0f, 1.0f));
-}
-
-void RAS_DebugDraw::RenderBox2D(const MT_Vector2& pos, const MT_Vector2& size, const MT_Vector4& color)
-{
-	m_boxes2D.emplace_back(pos, size, color);
-}
-
-void RAS_DebugDraw::RenderText2D(const std::string& text, const MT_Vector2& size, const MT_Vector4& color)
-{
-	m_texts2D.emplace_back(text, size, color);
+	m_texts2d.emplace_back(text, size, color);
 }
 
 void RAS_DebugDraw::Flush(RAS_Rasterizer *rasty, RAS_ICanvas *canvas)
 {
-	if ((m_lines.size() + m_circles.size() + m_aabbs.size() + m_boxes.size() + m_solidBoxes.size() + m_texts2D.size() + m_boxes2D.size()) == 0) {
+	if ((m_lines.size() + m_aabbs.size() + m_frustums.size() + m_texts2d.size() + m_boxes2d.size()) == 0) {
 		return;
 	}
 
-	m_impl->Flush(rasty, canvas, this);
+	rasty->FlushDebug(canvas, this);
 
 	m_lines.clear();
-	m_circles.clear();
 	m_aabbs.clear();
-	m_boxes.clear();
-	m_solidBoxes.clear();
-	m_texts2D.clear();
-	m_boxes2D.clear();
+	m_frustums.clear();
+	m_texts2d.clear();
+	m_boxes2d.clear();
 }

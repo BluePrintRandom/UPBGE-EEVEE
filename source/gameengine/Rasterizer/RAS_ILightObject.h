@@ -32,64 +32,40 @@
 #ifndef __RAS_LIGHTOBJECT_H__
 #define __RAS_LIGHTOBJECT_H__
 
-#include "MT_Vector2.h"
+#include "mathfu.h"
 
-class RAS_Rasterizer;
+class RAS_ICanvas;
 
-class MT_Vector3;
-class MT_Transform;
-class MT_Matrix4x4;
-class MT_Matrix3x3;
+class KX_Camera;
 
-/* Note about these KX in RAS file:
- * I don't think it's abnormal to keep
- * KX here as RAS_ILightObject is used
- * both in RAS_OpenGLLight and KX_KetsjiEngine
- * (youle)
- */
-class KX_LightObject;
-class KX_Scene;
-
-struct EEVEE_Light;
-struct EEVEE_LampsInfo;
-struct EEVEE_LampEngineData;
-struct Object;
 struct Image;
 
 class RAS_ILightObject
 {
 public:
-	// WARNING: have to match DNA enums for shader identification.
 	enum LightType {
-		LIGHT_NORMAL = 0, // LA_LOCAL
-		LIGHT_SUN = 1, // LA_SUN
-		LIGHT_SPOT = 2, // LA_SPOT
-		LIGHT_HEMI = 3, // LA_HEMI
-		LIGHT_AREA = 4 // LA_AREA
+		LIGHT_SPOT,
+		LIGHT_SUN,
+		LIGHT_NORMAL,
+		LIGHT_HEMI
 	};
 
-	enum AreaShapeType {
-		AREA_SQUARE,
-		AREA_RECT,
-		AREA_CUBE,
-		AREA_BOX
-	};
-
+	bool	m_modified;
 	int		m_layer;
+	void	*m_scene;
+	void	*m_light;
 
 	float	m_energy;
 	float	m_distance;
-	bool m_hasShadow;
 	float	m_shadowclipstart;
 	float	m_shadowfrustumsize;
 	float	m_shadowclipend;
 	float	m_shadowbias;
-	float m_shadowBleedExp;
 	float	m_shadowbleedbias;
 	short	m_shadowmaptype;
-	float	m_shadowcolor[3];
+	mt::vec3 m_shadowcolor;
 
-	float	m_color[3];
+	mt::vec3 m_color;
 
 	float	m_att1;
 	float	m_att2;
@@ -97,10 +73,7 @@ public:
 	float	m_spotsize;
 	float	m_spotblend;
 
-	MT_Vector2 m_areaSize;
-
 	LightType	m_type;
-	AreaShapeType m_areaShape;
 	
 	bool	m_nodiffuse;
 	bool	m_nospecular;
@@ -108,17 +81,20 @@ public:
 	bool m_staticShadow;
 	bool m_requestShadowUpdate;
 
-	virtual ~RAS_ILightObject() {}
+	virtual ~RAS_ILightObject() = default;
 	virtual RAS_ILightObject* Clone() = 0;
 
-	virtual bool HasShadow() const = 0;
+	virtual bool HasShadowBuffer() = 0;
 	virtual bool NeedShadowUpdate() = 0;
 	virtual int GetShadowBindCode() = 0;
-	virtual MT_Matrix4x4 GetShadowMatrix() = 0;
-	virtual MT_Matrix4x4 GetViewMat() = 0;
-	virtual MT_Matrix4x4 GetWinMat() = 0;
+	virtual mt::mat4 GetShadowMatrix() = 0;
+	virtual mt::mat4 GetViewMat() = 0;
+	virtual mt::mat4 GetWinMat() = 0;
 	virtual int GetShadowLayer() = 0;
+	virtual void BindShadowBuffer(RAS_ICanvas *canvas, KX_Camera *cam, mt::mat3x4& camtrans) = 0;
+	virtual void UnbindShadowBuffer() = 0;
 	virtual Image *GetTextureImage(short texslot) = 0;
+	virtual void Update(const mt::mat3x4& trans, bool hide) = 0;
 };
 
 #endif  /* __RAS_LIGHTOBJECT_H__ */

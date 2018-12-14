@@ -37,6 +37,7 @@
 #include "CM_Message.h"
 
 #include <boost/format.hpp>
+#include <thread>
 
 #include "BLI_task.h"
 
@@ -50,12 +51,12 @@
 #include "RAS_BucketManager.h"
 #include "RAS_Rasterizer.h"
 #include "RAS_ICanvas.h"
-#include "RAS_FrameBuffer.h"
-#include "MT_Vector3.h"
-#include "MT_Transform.h"
+#include "RAS_OffScreen.h"
+#include "RAS_Query.h"
+#include "RAS_ILightObject.h"
 #include "SCA_IInputDevice.h"
 #include "KX_Camera.h"
-#include "KX_Light.h"
+#include "KX_LightObject.h"
 #include "KX_Globals.h"
 #include "KX_PyConstraintBinding.h"
 #include "PHY_IPhysicsEnvironment.h"
@@ -66,7 +67,9 @@
 #include "KX_PythonInit.h" // for updatePythonJoysticks
 
 #include "KX_WorldInfo.h"
-#include "KX_BlenderConverter.h"
+
+#include "BL_Converter.h"
+#include "BL_SceneConverter.h"
 
 #include "RAS_FramingManager.h"
 #include "DNA_world_types.h"
@@ -74,39 +77,33 @@
 
 #include "KX_NavMeshObject.h"
 
-
 #define DEFAULT_LOGIC_TIC_RATE 60.0
 
-#ifdef FREE_WINDOWS /* XXX mingw64 (gcc 4.7.0) defines a macro for DrawText that translates to DrawTextA. Not good */
-#  ifdef DrawText
-#    undef DrawText
-#  endif
-#endif
-
-/* EEVEE INTEGRATION */
-extern "C" {
-#  include "DRW_render.h"
-#  include "GPU_framebuffer.h"
+KX_ExitInfo::KX_ExitInfo()
+	:m_code(NO_REQUEST)
+{
 }
-/* End of EEVEE INTEGRATION */
 
-KX_KetsjiEngine::CameraRenderData::CameraRenderData(KX_Camera *rendercam, KX_Camera *cullingcam, const RAS_Rect& area, const RAS_Rect& viewport,
-															  RAS_Rasterizer::StereoEye eye)
+KX_KetsjiEngine::CameraRenderData::CameraRenderData(KX_Camera *rendercam, KX_Camera *cullingcam, const RAS_Rect& area,
+                                                    const RAS_Rect& viewport, RAS_Rasterizer::StereoMode stereoMode, RAS_Rasterizer::StereoEye eye)
 	:m_renderCamera(rendercam),
 	m_cullingCamera(cullingcam),
 	m_area(area),
 	m_viewport(viewport),
+	m_stereoMode(stereoMode),
 	m_eye(eye)
 {
 	m_renderCamera->AddRef();
 }
 
 KX_KetsjiEngine::CameraRenderData::CameraRenderData(const CameraRenderData& other)
+	:m_renderCamera(CM_AddRef(other.m_renderCamera)),
+	m_cullingCamera(other.m_cullingCamera),
+	m_area(other.m_area),
+	m_viewport(other.m_viewport),
+	m_stereoMode(other.m_stereoMode),
+	m_eye(other.m_eye)
 {
-	m_renderCamera = CM_AddRef(other.m_renderCamera);
-	m_cullingCamera = other.m_cullingCamera;
-	m_area = other.m_area;
-	m_viewport = other.m_viewport;
 }
 
 KX_KetsjiEngine::CameraRenderData::~CameraRenderData()
@@ -119,10 +116,17 @@ KX_KetsjiEngine::SceneRenderData::SceneRenderData(KX_Scene *scene)
 {
 }
 
-KX_KetsjiEngine::FrameRenderData::FrameRenderData(RAS_Rasterizer::FrameBufferType fbType)
-	:m_fbType(fbType)
+KX_KetsjiEngine::FrameRenderData::FrameRenderData(RAS_Rasterizer::OffScreenType ofsType)
+	:m_ofsType(ofsType)
 {
 }
+
+KX_KetsjiEngine::RenderData::RenderData(RAS_Rasterizer::StereoMode stereoMode, bool renderPerEye)
+	:m_stereoMode(stereoMode),
+	m_renderPerEye(renderPerEye)
+{
+}
+
 
 const std::string KX_KetsjiEngine::m_profileLabels[tc_numCategories] = {
 	"Physics:", // tc_physics
@@ -137,21 +141,29 @@ const std::string KX_KetsjiEngine::m_profileLabels[tc_numCategories] = {
 	"GPU Latency:" // tc_latency
 };
 
+const std::string KX_KetsjiEngine::m_renderQueriesLabels[QUERY_MAX] = {
+	"Samples:", // QUERY_SAMPLES
+	"Primitives:", // QUERY_PRIMITIVES
+	"Time:" // QUERY_TIME
+};
+
 /**
  * Constructor of the Ketsji Engine
  */
-KX_KetsjiEngine::KX_KetsjiEngine(KX_ISystem *system)
+KX_KetsjiEngine::KX_KetsjiEngine()
 	:m_canvas(nullptr),
 	m_rasterizer(nullptr),
-	m_kxsystem(system),
 	m_converter(nullptr),
+	m_networkMessageManager(nullptr),
+#ifdef WITH_PYTHON
+	m_pyprofiledict(PyDict_New()),
+#endif
 	m_inputDevice(nullptr),
+	m_scenes(new EXP_ListValue<KX_Scene>()),
 	m_bInitialized(false),
 	m_flags(AUTO_ADD_DEBUG_PROPERTIES),
 	m_frameTime(0.0f),
 	m_clockTime(0.0f),
-	m_previousClockTime(0.0f),
-	m_previousAnimTime(0.0f),
 	m_timescale(1.0f),
 	m_previousRealTime(0.0f),
 	m_maxLogicFrame(5),
@@ -159,29 +171,23 @@ KX_KetsjiEngine::KX_KetsjiEngine(KX_ISystem *system)
 	m_ticrate(DEFAULT_LOGIC_TIC_RATE),
 	m_anim_framerate(25.0),
 	m_doRender(true),
-	m_exitkey(130),
-	m_exitcode(KX_ExitRequest::NO_REQUEST),
-	m_exitstring(""),
-	m_cameraZoom(1.0f),
-	m_overrideCamZoom(1.0f),
-	m_logger(KX_TimeCategoryLogger(25)),
+	m_exitKey(SCA_IInputDevice::ENDKEY),
+	m_logger(KX_TimeCategoryLogger(m_clock, 25)),
 	m_average_framerate(0.0),
 	m_showBoundingBox(KX_DebugOption::DISABLE),
 	m_showArmature(KX_DebugOption::DISABLE),
 	m_showCameraFrustum(KX_DebugOption::DISABLE),
-	m_showShadowFrustum(KX_DebugOption::DISABLE)
+	m_showShadowFrustum(KX_DebugOption::DISABLE),
+	m_globalsettings({0}),
+	m_taskscheduler(BLI_task_scheduler_create(TASK_SCHEDULER_AUTO_THREADS))
 {
 	for (int i = tc_first; i < tc_numCategories; i++) {
 		m_logger.AddCategory((KX_TimeCategory)i);
 	}
 
-#ifdef WITH_PYTHON
-	m_pyprofiledict = PyDict_New();
-#endif
-
-	m_taskscheduler = BLI_task_scheduler_create(TASK_SCHEDULER_AUTO_THREADS);
-
-	m_scenes = new CListValue<KX_Scene>();
+	m_renderQueries.emplace_back(RAS_Query::SAMPLES);
+	m_renderQueries.emplace_back(RAS_Query::PRIMITIVES);
+	m_renderQueries.emplace_back(RAS_Query::TIME);
 }
 
 /**
@@ -193,8 +199,9 @@ KX_KetsjiEngine::~KX_KetsjiEngine()
 	Py_CLEAR(m_pyprofiledict);
 #endif
 
-	if (m_taskscheduler)
+	if (m_taskscheduler) {
 		BLI_task_scheduler_free(m_taskscheduler);
+	}
 
 	m_scenes->Release();
 }
@@ -230,7 +237,7 @@ PyObject *KX_KetsjiEngine::GetPyProfileDict()
 }
 #endif
 
-void KX_KetsjiEngine::SetConverter(KX_BlenderConverter *converter)
+void KX_KetsjiEngine::SetConverter(BL_Converter *converter)
 {
 	BLI_assert(converter);
 	m_converter = converter;
@@ -238,16 +245,24 @@ void KX_KetsjiEngine::SetConverter(KX_BlenderConverter *converter)
 
 void KX_KetsjiEngine::StartEngine()
 {
-	m_clockTime = m_kxsystem->GetTimeInSeconds();
-	m_frameTime = m_kxsystem->GetTimeInSeconds();
-	m_previousClockTime = m_kxsystem->GetTimeInSeconds();
-	m_previousRealTime = m_kxsystem->GetTimeInSeconds();
+	// Reset the clock to start at 0.0.
+	m_clock.Reset();
 
 	m_bInitialized = true;
 }
 
 void KX_KetsjiEngine::BeginFrame()
 {
+	if (m_flags & SHOW_RENDER_QUERIES) {
+		m_logger.StartLog(tc_overhead);
+
+		for (RAS_Query& query : m_renderQueries) {
+			query.Begin();
+		}
+	}
+
+	m_logger.StartLog(tc_rasterizer);
+
 	m_rasterizer->BeginFrame(m_frameTime);
 
 	m_canvas->BeginDraw();
@@ -255,16 +270,25 @@ void KX_KetsjiEngine::BeginFrame()
 
 void KX_KetsjiEngine::EndFrame()
 {
+	m_rasterizer->MotionBlur();
+
+	m_logger.StartLog(tc_overhead);
+
+	if (m_flags & SHOW_RENDER_QUERIES) {
+		for (RAS_Query& query : m_renderQueries) {
+			query.End();
+		}
+	}
+
 	// Show profiling info
-	m_logger.StartLog(tc_overhead, m_kxsystem->GetTimeInSeconds());
-	if (m_flags & (SHOW_PROFILE | SHOW_FRAMERATE | SHOW_DEBUG_PROPERTIES)) {
-		/* TEMP: DISABLE TEXT DRAWING in 2.8 WAITING FOR REFACTOR */
+	if (m_flags & (SHOW_PROFILE | SHOW_FRAMERATE | SHOW_DEBUG_PROPERTIES | SHOW_RENDER_QUERIES)) {
 		RenderDebugProperties();
 	}
 
 	double tottime = m_logger.GetAverage();
-	if (tottime < 1e-6)
+	if (tottime < 1e-6) {
 		tottime = 1e-6;
+	}
 
 #ifdef WITH_PYTHON
 	for (int i = tc_first; i < tc_numCategories; ++i) {
@@ -281,26 +305,24 @@ void KX_KetsjiEngine::EndFrame()
 	m_average_framerate = 1.0 / tottime;
 
 	// Go to next profiling measurement, time spent after this call is shown in the next frame.
-	m_logger.NextMeasurement(m_kxsystem->GetTimeInSeconds());
+	m_logger.NextMeasurement();
 
-	m_logger.StartLog(tc_rasterizer, m_kxsystem->GetTimeInSeconds());
+	m_logger.StartLog(tc_rasterizer);
 	m_rasterizer->EndFrame();
 
-	m_logger.StartLog(tc_logic, m_kxsystem->GetTimeInSeconds());
+	m_logger.StartLog(tc_logic);
 	m_canvas->FlushScreenshots();
 
 	// swap backbuffer (drawing into this buffer) <-> front/visible buffer
-	m_logger.StartLog(tc_latency, m_kxsystem->GetTimeInSeconds());
+	m_logger.StartLog(tc_latency);
 	m_canvas->SwapBuffers();
-	m_logger.StartLog(tc_rasterizer, m_kxsystem->GetTimeInSeconds());
+	m_logger.StartLog(tc_rasterizer);
 
 	m_canvas->EndDraw();
 }
 
-bool KX_KetsjiEngine::NextFrame()
+KX_KetsjiEngine::FrameTimes KX_KetsjiEngine::GetFrameTimes()
 {
-	m_logger.StartLog(tc_services, m_kxsystem->GetTimeInSeconds());
-
 	/*
 	 * Clock advancement. There is basically two case:
 	 *   - USE_EXTERNAL_CLOCK is true, the user is responsible to advance the time
@@ -314,70 +336,98 @@ bool KX_KetsjiEngine::NextFrame()
 	 * will be executed before the next rendering phase (which will occur at "clockTime").
 	 * The game time elapsing between two logic frames (called framestep)
 	 * depends on several variables:
-	 *   - ticrate 
+	 *   - ticrate
 	 *   - max_physic_frame
 	 *   - max_logic_frame
 	 *   - fixed_framerate
-	 * XXX The logic over computation framestep is definitively not clear (and
-	 * I'm not even sure it is correct). If needed frame is strictly greater
-	 * than max_physics_frame, we are doing a jump in game time, but keeping
-	 * framestep = 1 / ticrate, while if frames is greater than
-	 * max_logic_frame, we increase framestep.
-	 *
-	 * XXX render.fps is not considred anywhere.
 	 */
 
-	double timestep = m_timescale / m_ticrate;
+	// Update time if the user is not controlling it.
 	if (!(m_flags & USE_EXTERNAL_CLOCK)) {
-		double current_time = m_kxsystem->GetTimeInSeconds();
-		double dt = current_time - m_previousRealTime;
-		m_previousRealTime = current_time;
-		m_clockTime += dt * m_timescale;
-
-		if (!(m_flags & FIXED_FRAMERATE)) {
-			timestep = dt * m_timescale;
-		}
+		m_clockTime = m_clock.GetTimeSecond();
 	}
 
-	double deltatime = m_clockTime - m_frameTime;
-	if (deltatime < 0.0) {
-		// We got here too quickly, which means there is nothing to do, just return and don't render.
-		// Not sure if this is the best fix, but it seems to stop the jumping framerate issue (#33088)
-		return false;
-	}
+	// Get elapsed time.
+	const double dt = m_clockTime - m_previousRealTime;
 
-	// In case of non-fixed framerate, we always proceed one frame.
-	int frames = 1;
-
-	// Compute the number of logic frames to do each update in case of fixed framerate.
+	// Time of a frame (without scale).
+	double timestep;
 	if (m_flags & FIXED_FRAMERATE) {
-		frames = int(deltatime * m_ticrate / m_timescale + 1e-6);
+		// Normal time step for fixed frame.
+		timestep = 1.0 / m_ticrate;
+	}
+	else {
+		// The frame is the smallest as possible.
+		timestep = dt;
 	}
 
-//	CM_Debug("dt = " << dt << ", deltatime = " << deltatime << ", frames = " << frames);
+	// Number of frames to proceed.
+	int frames;
+	if (m_flags & FIXED_FRAMERATE) {
+		// As many as possible for the elapsed time.
+		frames = int(dt * m_ticrate);
+	}
+	else {
+		// Proceed always one frame in non-fixed framerate.
+		frames = 1;
+	}
 
-	double framestep = timestep;
-
+	// Fix timestep to not exceed max physics and logic frames.
 	if (frames > m_maxPhysicsFrame) {
-		m_frameTime += (frames - m_maxPhysicsFrame) * timestep;
+		timestep = dt / m_maxPhysicsFrame;
 		frames = m_maxPhysicsFrame;
 	}
-
-	bool doRender = frames > 0; 
-
 	if (frames > m_maxLogicFrame) {
-		framestep = (frames * timestep) / m_maxLogicFrame;
+		timestep = dt / m_maxLogicFrame;
 		frames = m_maxLogicFrame;
 	}
 
-	while (frames) {
-		m_frameTime += framestep;
-
-		m_converter->MergeAsyncLoads();
-
-		if (m_inputDevice) {
-			m_inputDevice->ReleaseMoveEvent();
+	// If the number of frame is non-zero, update previous time.
+	if (frames > 0) {
+		m_previousRealTime = m_clockTime;
+	}
+	// Else in case of fixed framerate, try to sleep until the next frame.
+	else if (m_flags & FIXED_FRAMERATE) {
+		const double sleeptime = timestep - dt - 1.0e-3;
+		/* If the remaining time is greather than 1ms (sleep resolution) sleep this thread.
+		 * The other 1ms will be busy wait.
+		 */
+		if (sleeptime > 0.0) {
+			std::this_thread::sleep_for(std::chrono::nanoseconds((long)(sleeptime * 1.0e9)));
 		}
+	}
+
+	// Frame time with time scale.
+	const double framestep = timestep * m_timescale;
+
+	FrameTimes times;
+	times.frames = frames;
+	times.timestep = timestep;
+	times.framestep = framestep;
+
+	return times;
+}
+
+bool KX_KetsjiEngine::NextFrame()
+{
+	m_logger.StartLog(tc_services);
+
+	const FrameTimes times = GetFrameTimes();
+
+	// Exit if zero frame is sheduled.
+	if (times.frames == 0) {
+		// Start logging time spent outside main loop
+		m_logger.StartLog(tc_outside);
+
+		return false;
+	}
+
+	// Fake release events for mouse movements only once.
+	m_inputDevice->ReleaseMoveEvent();
+
+	for (unsigned short i = 0; i < times.frames; ++i) {
+		m_frameTime += times.framestep;
+
 #ifdef WITH_SDL
 		// Handle all SDL Joystick events here to share them for all scenes properly.
 		short addrem[JOYINDEX_MAX] = {0};
@@ -394,77 +444,67 @@ bool KX_KetsjiEngine::NextFrame()
 			 * entire scene. Objects can be suspended individually, and
 			 * the settings for that precede the logic and physics
 			 * update. */
-			m_logger.StartLog(tc_logic, m_kxsystem->GetTimeInSeconds());
+			m_logger.StartLog(tc_logic);
 
 			scene->UpdateObjectActivity();
 
 			if (!scene->IsSuspended()) {
-				m_logger.StartLog(tc_physics, m_kxsystem->GetTimeInSeconds());
+				m_logger.StartLog(tc_physics);
 				// set Python hooks for each scene
-#ifdef WITH_PYTHON
-				PHY_SetActiveEnvironment(scene->GetPhysicsEnvironment());
-#endif
 				KX_SetActiveScene(scene);
 
-				scene->GetPhysicsEnvironment()->EndFrame();
-
 				// Process sensors, and controllers
-				m_logger.StartLog(tc_logic, m_kxsystem->GetTimeInSeconds());
-				scene->LogicBeginFrame(m_frameTime, framestep);
+				m_logger.StartLog(tc_logic);
+				scene->LogicBeginFrame(m_frameTime, times.framestep);
 
 				// Scenegraph needs to be updated again, because Logic Controllers
 				// can affect the local matrices.
-				m_logger.StartLog(tc_scenegraph, m_kxsystem->GetTimeInSeconds());
-				scene->UpdateParents(m_frameTime);
+				m_logger.StartLog(tc_scenegraph);
+				scene->UpdateParents();
 
 				// Process actuators
 
 				// Do some cleanup work for this logic frame
-				m_logger.StartLog(tc_logic, m_kxsystem->GetTimeInSeconds());
+				m_logger.StartLog(tc_logic);
 				scene->LogicUpdateFrame(m_frameTime);
 
 				scene->LogicEndFrame();
 
 				// Actuators can affect the scenegraph
-				m_logger.StartLog(tc_scenegraph, m_kxsystem->GetTimeInSeconds());
-				scene->UpdateParents(m_frameTime);
+				m_logger.StartLog(tc_scenegraph);
+				scene->UpdateParents();
 
-				m_logger.StartLog(tc_physics, m_kxsystem->GetTimeInSeconds());
-				scene->GetPhysicsEnvironment()->BeginFrame();
+				m_logger.StartLog(tc_physics);
 
 				// Perform physics calculations on the scene. This can involve
 				// many iterations of the physics solver.
-				scene->GetPhysicsEnvironment()->ProceedDeltaTime(m_frameTime, timestep, framestep);//m_deltatimerealDeltaTime);
+				scene->GetPhysicsEnvironment()->ProceedDeltaTime(m_frameTime, times.timestep, times.framestep);//m_deltatimerealDeltaTime);
 
-				m_logger.StartLog(tc_scenegraph, m_kxsystem->GetTimeInSeconds());
-				scene->UpdateParents(m_frameTime);
+				m_logger.StartLog(tc_scenegraph);
+				scene->UpdateParents();
 			}
 
-			m_logger.StartLog(tc_services, m_kxsystem->GetTimeInSeconds());
+			m_logger.StartLog(tc_services);
 		}
 
-		m_logger.StartLog(tc_network, m_kxsystem->GetTimeInSeconds());
+		m_logger.StartLog(tc_network);
 		m_networkMessageManager->ClearMessages();
 
-		m_logger.StartLog(tc_services, m_kxsystem->GetTimeInSeconds());
-
 		// update system devices
-		m_logger.StartLog(tc_logic, m_kxsystem->GetTimeInSeconds());
-		if (m_inputDevice) {
-			m_inputDevice->ClearInputs();
-		}
+		m_logger.StartLog(tc_logic);
+		m_inputDevice->ClearInputs();
 
-		UpdateSuspendedScenes(framestep);
+		m_converter->ProcessScheduledLibraries();
+
+		UpdateSuspendedScenes(times.framestep);
 		// scene management
 		ProcessScheduledScenes();
-
-		frames--;
 	}
 
 	// Start logging time spent outside main loop
-	m_logger.StartLog(tc_outside, m_kxsystem->GetTimeInSeconds());
+	m_logger.StartLog(tc_outside);
 
-	return doRender && m_doRender;
+	return m_doRender;
 }
 
 void KX_KetsjiEngine::UpdateSuspendedScenes(double framestep)
@@ -477,20 +517,21 @@ void KX_KetsjiEngine::UpdateSuspendedScenes(double framestep)
 }
 
 KX_KetsjiEngine::CameraRenderData KX_KetsjiEngine::GetCameraRenderData(KX_Scene *scene, KX_Camera *camera, KX_Camera *overrideCullingCam,
-		const RAS_Rect& displayArea, RAS_Rasterizer::StereoEye eye, bool usestereo)
+                                                                       const RAS_Rect& displayArea, RAS_Rasterizer::StereoMode stereoMode, RAS_Rasterizer::StereoEye eye)
 {
 	KX_Camera *rendercam;
 	/* In case of stereo we must copy the camera because it is used twice with different settings
 	 * (modelview matrix). This copy use the same transform settings that the original camera
 	 * and its name is based on with the eye number in addition.
 	 */
+	const bool usestereo = (stereoMode != RAS_Rasterizer::RAS_STEREO_NOSTEREO);
 	if (usestereo) {
-		rendercam = new KX_Camera(scene, scene->m_callbacks, *camera->GetCameraData(), true, true);
+		rendercam = new KX_Camera(scene, KX_Scene::m_callbacks, *camera->GetCameraData(), true);
 		rendercam->SetName("__stereo_" + camera->GetName() + "_" + std::to_string(eye) + "__");
 		rendercam->NodeSetGlobalOrientation(camera->NodeGetWorldOrientation());
 		rendercam->NodeSetWorldPosition(camera->NodeGetWorldPosition());
 		rendercam->NodeSetWorldScale(camera->NodeGetWorldScaling());
-		rendercam->NodeUpdateGS(0.0);
+		rendercam->NodeUpdate();
 	}
 	// Else use the native camera.
 	else {
@@ -509,12 +550,12 @@ KX_KetsjiEngine::CameraRenderData KX_KetsjiEngine::GetCameraRenderData(KX_Scene 
 	// Compute the area and the viewport based on the current display area and the optional camera viewport.
 	GetSceneViewport(scene, rendercam, displayArea, area, viewport);
 	// Compute the camera matrices: modelview and projection.
-	const MT_Matrix4x4 viewmat = m_rasterizer->GetViewMatrix(eye, rendercam->GetWorldToCamera(), rendercam->GetCameraData()->m_perspective);
-	const MT_Matrix4x4 projmat = GetCameraProjectionMatrix(scene, rendercam, eye, viewport, area);
+	const mt::mat4 viewmat = m_rasterizer->GetViewMatrix(stereoMode, eye, rendercam->GetWorldToCamera(), rendercam->GetCameraData()->m_perspective);
+	const mt::mat4 projmat = GetCameraProjectionMatrix(scene, rendercam, stereoMode, eye, viewport, area);
 	rendercam->SetModelviewMatrix(viewmat);
 	rendercam->SetProjectionMatrix(projmat);
 
-	CameraRenderData cameraData(rendercam, cullingcam, area, viewport, eye);
+	CameraRenderData cameraData(rendercam, cullingcam, area, viewport, stereoMode, eye);
 
 	if (usestereo) {
 		rendercam->Release();
@@ -523,14 +564,16 @@ KX_KetsjiEngine::CameraRenderData KX_KetsjiEngine::GetCameraRenderData(KX_Scene 
 	return cameraData;
 }
 
-bool KX_KetsjiEngine::GetFrameRenderData(std::vector<FrameRenderData>& frameDataList)
+KX_KetsjiEngine::RenderData KX_KetsjiEngine::GetRenderData()
 {
 	const RAS_Rasterizer::StereoMode stereomode = m_rasterizer->GetStereoMode();
 	const bool usestereo = (stereomode != RAS_Rasterizer::RAS_STEREO_NOSTEREO);
 	// Set to true when each eye needs to be rendered in a separated off screen.
 	const bool renderpereye = stereomode == RAS_Rasterizer::RAS_STEREO_INTERLACED ||
-							  stereomode == RAS_Rasterizer::RAS_STEREO_VINTERLACE ||
-							  stereomode == RAS_Rasterizer::RAS_STEREO_ANAGLYPH;
+	                          stereomode == RAS_Rasterizer::RAS_STEREO_VINTERLACE ||
+	                          stereomode == RAS_Rasterizer::RAS_STEREO_ANAGLYPH;
+
+	RenderData renderData(stereomode, renderpereye);
 
 	// The number of eyes to manage in case of stereo.
 	const unsigned short numeyes = (usestereo) ? 2 : 1;
@@ -538,15 +581,15 @@ bool KX_KetsjiEngine::GetFrameRenderData(std::vector<FrameRenderData>& frameData
 	const unsigned short numframes = (renderpereye) ? 2 : 1;
 
 	// The off screen corresponding to the frame.
-	static const RAS_Rasterizer::FrameBufferType fbType[] = {
-		RAS_Rasterizer::RAS_FRAMEBUFFER_EYE_LEFT0,
-		RAS_Rasterizer::RAS_FRAMEBUFFER_EYE_RIGHT0,
+	static const RAS_Rasterizer::OffScreenType ofsType[] = {
+		RAS_Rasterizer::RAS_OFFSCREEN_EYE_LEFT0,
+		RAS_Rasterizer::RAS_OFFSCREEN_EYE_RIGHT0
 	};
 
 	// Pre-compute the display area used for stereo or normal rendering.
 	std::vector<RAS_Rect> displayAreas;
 	for (unsigned short eye = 0; eye < numeyes; ++eye) {
-		displayAreas.push_back(m_rasterizer->GetRenderArea(m_canvas, (RAS_Rasterizer::StereoEye)eye));
+		displayAreas.push_back(m_rasterizer->GetRenderArea(m_canvas, stereomode, (RAS_Rasterizer::StereoEye)eye));
 	}
 
 	// Prepare override culling camera of each scenes, we don't manage stereo currently.
@@ -559,17 +602,18 @@ bool KX_KetsjiEngine::GetFrameRenderData(std::vector<FrameRenderData>& frameData
 			// Compute the area and the viewport based on the current display area and the optional camera viewport.
 			GetSceneViewport(scene, overrideCullingCam, displayAreas[RAS_Rasterizer::RAS_STEREO_LEFTEYE], area, viewport);
 			// Compute the camera matrices: modelview and projection.
-			const MT_Matrix4x4 viewmat = m_rasterizer->GetViewMatrix(RAS_Rasterizer::RAS_STEREO_LEFTEYE, overrideCullingCam->GetWorldToCamera(),
-																	 overrideCullingCam->GetCameraData()->m_perspective);
-			const MT_Matrix4x4 projmat = GetCameraProjectionMatrix(scene, overrideCullingCam, RAS_Rasterizer::RAS_STEREO_LEFTEYE, viewport, area);
+			const mt::mat4 viewmat = m_rasterizer->GetViewMatrix(stereomode, RAS_Rasterizer::RAS_STEREO_LEFTEYE,
+			                                                     overrideCullingCam->GetWorldToCamera(), overrideCullingCam->GetCameraData()->m_perspective);
+			const mt::mat4 projmat = GetCameraProjectionMatrix(scene, overrideCullingCam, stereomode,
+			                                                   RAS_Rasterizer::RAS_STEREO_LEFTEYE, viewport, area);
 			overrideCullingCam->SetModelviewMatrix(viewmat);
 			overrideCullingCam->SetProjectionMatrix(projmat);
 		}
 	}
 
 	for (unsigned short frame = 0; frame < numframes; ++frame) {
-		frameDataList.emplace_back(fbType[frame]);
-		FrameRenderData& frameData = frameDataList.back();
+		renderData.m_frameDataList.emplace_back(ofsType[frame]);
+		FrameRenderData& frameData = renderData.m_frameDataList.back();
 
 		// Get the eyes managed per frame.
 		std::vector<RAS_Rasterizer::StereoEye> eyes;
@@ -591,7 +635,6 @@ bool KX_KetsjiEngine::GetFrameRenderData(std::vector<FrameRenderData>& frameData
 			SceneRenderData& sceneFrameData = frameData.m_sceneDataList.back();
 
 			KX_Camera *activecam = scene->GetActiveCamera();
-
 			KX_Camera *overrideCullingCam = scene->GetOverrideCullingCamera();
 			for (KX_Camera *cam : scene->GetCameraList()) {
 				if (cam != activecam && !cam->GetViewport()) {
@@ -599,29 +642,40 @@ bool KX_KetsjiEngine::GetFrameRenderData(std::vector<FrameRenderData>& frameData
 				}
 
 				for (RAS_Rasterizer::StereoEye eye : eyes) {
-					sceneFrameData.m_cameraDataList.push_back(GetCameraRenderData(scene, cam, overrideCullingCam, displayAreas[eye], eye, usestereo));
+					sceneFrameData.m_cameraDataList.push_back(GetCameraRenderData(scene, cam, overrideCullingCam, displayAreas[eye],
+					                                                              stereomode, eye));
 				}
 			}
 		}
 	}
 
-	return renderpereye;
+	return renderData;
 }
 
 void KX_KetsjiEngine::Render()
 {
-	m_logger.StartLog(tc_rasterizer, m_kxsystem->GetTimeInSeconds());
+	m_logger.StartLog(tc_rasterizer);
 
 	BeginFrame();
 
-	std::vector<FrameRenderData> frameDataList;
-	GetFrameRenderData(frameDataList);
+	for (KX_Scene *scene : m_scenes) {
+		// shadow buffers
+		RenderShadowBuffers(scene);
+		// Render only independent texture renderers here.
+		scene->RenderTextureRenderers(KX_TextureRendererManager::VIEWPORT_INDEPENDENT, m_rasterizer, nullptr, nullptr, RAS_Rect(), RAS_Rect());
+	}
+
+	RenderData renderData = GetRenderData();
+
+	// Update all off screen to the current canvas size.
+	m_rasterizer->UpdateOffScreens(m_canvas);
 
 	const int width = m_canvas->GetWidth();
 	const int height = m_canvas->GetHeight();
-
 	// clear the entire game screen with the border color
-	m_rasterizer->SetViewport(0, 0, width + 1, height + 1);
+	// only once per frame
+	m_rasterizer->SetViewport(0, 0, width, height);
+	m_rasterizer->SetScissor(0, 0, width, height);
 
 	KX_Scene *firstscene = m_scenes->GetFront();
 	const RAS_FrameSettings &framesettings = firstscene->GetFramingType();
@@ -631,7 +685,10 @@ void KX_KetsjiEngine::Render()
 	// Used to detect when a camera is the first rendered an then doesn't request a depth clear.
 	unsigned short pass = 0;
 
-	for (FrameRenderData& frameData : frameDataList) {
+	for (FrameRenderData& frameData : renderData.m_frameDataList) {
+		// Current bound off screen.
+		RAS_OffScreen *offScreen = m_rasterizer->GetOffScreen(frameData.m_ofsType);
+		offScreen->Bind();
 
 		// Clear off screen only before the first scene render.
 		m_rasterizer->Clear(RAS_Rasterizer::RAS_COLOR_BUFFER_BIT | RAS_Rasterizer::RAS_DEPTH_BUFFER_BIT);
@@ -641,64 +698,80 @@ void KX_KetsjiEngine::Render()
 			const SceneRenderData& sceneFrameData = frameData.m_sceneDataList[i];
 			KX_Scene *scene = sceneFrameData.m_scene;
 
+			const bool isfirstscene = (i == 0);
+			const bool islastscene = (i == (size - 1));
+
+			// pass the scene's worldsettings to the rasterizer
+			scene->GetWorldInfo()->UpdateWorldSettings(m_rasterizer);
+
 			m_rasterizer->SetAuxilaryClientInfo(scene);
 
 			// Draw the scene once for each camera with an enabled viewport or an active camera.
 			for (const CameraRenderData& cameraFrameData : sceneFrameData.m_cameraDataList) {
 				// do the rendering
-				RenderCamera(scene, cameraFrameData, pass++);
+				RenderCamera(scene, cameraFrameData, offScreen, pass++, isfirstscene);
 			}
+
+			/* Choose final render off screen target. If the current off screen is using multisamples we
+			 * are sure that it will be copied to a non-multisamples off screen before render the filters.
+			 * In this case the targeted off screen is the same as the current off screen. */
+			RAS_Rasterizer::OffScreenType target;
+			if (offScreen->GetSamples() > 0) {
+				/* If the last scene is rendered it's useless to specify a multisamples off screen, we use then
+				 * a non-multisamples off screen and avoid an extra off screen blit. */
+				if (islastscene) {
+					target = RAS_Rasterizer::NextRenderOffScreen(frameData.m_ofsType);
+				}
+				else {
+					target = frameData.m_ofsType;
+				}
+			}
+			/* In case of non-multisamples a ping pong per scene render is made between a potentially multisamples
+			 * off screen and a non-multisamples off screen as the both doesn't use multisamples. */
+			else {
+				target = RAS_Rasterizer::NextRenderOffScreen(frameData.m_ofsType);
+			}
+
+			// Render filters and get output off screen.
+			offScreen = PostRenderScene(scene, offScreen, m_rasterizer->GetOffScreen(target));
+			frameData.m_ofsType = offScreen->GetType();
 		}
 	}
-}
 
-void KX_KetsjiEngine::RequestExit(KX_ExitRequest exitrequestmode)
-{
-	m_exitcode = exitrequestmode;
-}
+	m_canvas->SetViewPort(0, 0, width, height);
 
-void KX_KetsjiEngine::SetNameNextGame(const std::string& nextgame)
-{
-	m_exitstring = nextgame;
-}
-
-KX_ExitRequest KX_KetsjiEngine::GetExitCode()
-{
-	// if a game actuator has set an exit code or if there are no scenes left
-	if (m_exitcode == KX_ExitRequest::NO_REQUEST) {
-		if (m_scenes->GetCount() == 0)
-			m_exitcode = KX_ExitRequest::NO_SCENES_LEFT;
+	// Compositing per eye off screens to screen.
+	if (renderData.m_renderPerEye) {
+		RAS_OffScreen *leftofs = m_rasterizer->GetOffScreen(renderData.m_frameDataList[0].m_ofsType);
+		RAS_OffScreen *rightofs = m_rasterizer->GetOffScreen(renderData.m_frameDataList[1].m_ofsType);
+		m_rasterizer->DrawStereoOffScreenToScreen(m_canvas, leftofs, rightofs, renderData.m_stereoMode);
+	}
+	// Else simply draw the off screen to screen.
+	else {
+		m_rasterizer->DrawOffScreenToScreen(m_canvas, m_rasterizer->GetOffScreen(renderData.m_frameDataList[0].m_ofsType));
 	}
 
-	return m_exitcode;
+	EndFrame();
 }
 
-const std::string& KX_KetsjiEngine::GetExitString()
+void KX_KetsjiEngine::RequestExit(KX_ExitInfo::Code code)
 {
-	return m_exitstring;
+	RequestExit(code, "");
 }
 
-void KX_KetsjiEngine::SetCameraZoom(float camzoom)
+void KX_KetsjiEngine::RequestExit(KX_ExitInfo::Code code, const std::string& fileName)
 {
-	m_cameraZoom = camzoom;
+	m_exitInfo.m_code = code;
+	m_exitInfo.m_fileName = fileName;
 }
 
-void KX_KetsjiEngine::SetCameraOverrideZoom(float camzoom)
+const KX_ExitInfo& KX_KetsjiEngine::GetExitInfo() const
 {
-	m_overrideCamZoom = camzoom;
+	return m_exitInfo;
 }
 
-float KX_KetsjiEngine::GetCameraZoom(KX_Camera *camera) const
-{
-	KX_Scene *scene = camera->GetScene();
-	const bool overrideCamera = (m_flags & CAMERA_OVERRIDE) && (scene->GetName() == m_overrideSceneName) &&
-		(camera->GetName() == "__default__cam__");
-
-	return overrideCamera ? m_overrideCamZoom : m_cameraZoom;
-}
-
-void KX_KetsjiEngine::EnableCameraOverride(const std::string& forscene, const MT_Matrix4x4& projmat,
-		const MT_Matrix4x4& viewmat, const RAS_CameraData& camdata)
+void KX_KetsjiEngine::EnableCameraOverride(const std::string& forscene, const mt::mat4& projmat,
+                                           const mt::mat4& viewmat, const RAS_CameraData& camdata)
 {
 	SetFlag(CAMERA_OVERRIDE, true);
 	m_overrideSceneName = forscene;
@@ -725,30 +798,31 @@ void KX_KetsjiEngine::GetSceneViewport(KX_Scene *scene, KX_Camera *cam, const RA
 
 		// Don't do bars on user specified viewport
 		RAS_FrameSettings settings = scene->GetFramingType();
-		if (settings.FrameType() == RAS_FrameSettings::e_frame_bars)
+		if (settings.FrameType() == RAS_FrameSettings::e_frame_bars) {
 			settings.SetFrameType(RAS_FrameSettings::e_frame_extend);
+		}
 
 		RAS_FramingManager::ComputeViewport(
-		    scene->GetFramingType(),
-		    userviewport,
-		    viewport
-		    );
+			scene->GetFramingType(),
+			userviewport,
+			viewport
+			);
 
 		area = userviewport;
 	}
-	else if (!(m_flags & CAMERA_OVERRIDE) || (scene->GetName() != m_overrideSceneName) || !m_overrideCamData.m_perspective) {
+	else if (((m_flags & CAMERA_OVERRIDE) == 0) || (scene->GetName() != m_overrideSceneName) || !m_overrideCamData.m_perspective) {
 		RAS_FramingManager::ComputeViewport(
-		    scene->GetFramingType(),
+			scene->GetFramingType(),
 			displayArea,
-		    viewport);
+			viewport);
 
 		area = displayArea;
 	}
 	else {
 		viewport.SetLeft(0);
 		viewport.SetBottom(0);
-		viewport.SetRight(int(m_canvas->GetWidth()));
-		viewport.SetTop(int(m_canvas->GetHeight()));
+		viewport.SetRight(m_canvas->GetMaxX());
+		viewport.SetTop(m_canvas->GetMaxY());
 
 		area = displayArea;
 	}
@@ -760,58 +834,88 @@ void KX_KetsjiEngine::UpdateAnimations(KX_Scene *scene)
 		return;
 	}
 
-	// Handle the animations independently of the logic time step
-	if (m_flags & RESTRICT_ANIMATION) {
-		double anim_timestep = 1.0 / scene->GetAnimationFPS();
-		if (m_frameTime - m_previousAnimTime > anim_timestep || m_frameTime == m_previousAnimTime) {
-			// Sanity/debug print to make sure we're actually going at the fps we want (should be close to anim_timestep)
-			// CM_Debug("Anim fps: " << 1.0/(m_frameTime - m_previousAnimTime));
-			m_previousAnimTime = m_frameTime;
-			for (KX_Scene *scene : m_scenes) {
-				scene->UpdateAnimations(m_frameTime);
+	scene->UpdateAnimations(m_frameTime, (m_flags & RESTRICT_ANIMATION) != 0);
+}
+
+void KX_KetsjiEngine::RenderShadowBuffers(KX_Scene *scene)
+{
+	EXP_ListValue<KX_LightObject> *lightlist = scene->GetLightList();
+
+	m_rasterizer->SetAuxilaryClientInfo(scene);
+
+	for (KX_LightObject *light : lightlist) {
+		light->Update();
+	}
+
+	if (m_rasterizer->GetDrawingMode() == RAS_Rasterizer::RAS_TEXTURED) {
+		for (KX_LightObject *light : lightlist) {
+			RAS_ILightObject *raslight = light->GetLightData();
+			if (light->GetVisible() && raslight->HasShadowBuffer() && raslight->NeedShadowUpdate()) {
+				/* make temporary camera */
+				RAS_CameraData camdata = RAS_CameraData();
+				KX_Camera *cam = new KX_Camera(scene, KX_Scene::m_callbacks, camdata, true);
+				cam->SetName("__shadow__cam__");
+
+				mt::mat3x4 camtrans;
+
+				/* binds framebuffer object, sets up camera .. */
+				raslight->BindShadowBuffer(m_canvas, cam, camtrans);
+
+				const std::vector<KX_GameObject *> objects = scene->CalculateVisibleMeshes(cam, raslight->GetShadowLayer());
+
+				m_logger.StartLog(tc_animations);
+				UpdateAnimations(scene);
+				m_logger.StartLog(tc_rasterizer);
+
+				/* render */
+				m_rasterizer->Clear(RAS_Rasterizer::RAS_DEPTH_BUFFER_BIT | RAS_Rasterizer::RAS_COLOR_BUFFER_BIT);
+				// Send a nullptr off screen because the viewport is binding it's using its own private one.
+				scene->RenderBuckets(objects, RAS_Rasterizer::RAS_SHADOW, camtrans, m_rasterizer, nullptr);
+
+				/* unbind framebuffer object, restore drawmode, free camera */
+				raslight->UnbindShadowBuffer();
+				cam->Release();
 			}
 		}
 	}
-	else
-		scene->UpdateAnimations(m_frameTime);
 }
 
-MT_Matrix4x4 KX_KetsjiEngine::GetCameraProjectionMatrix(KX_Scene *scene, KX_Camera *cam, RAS_Rasterizer::StereoEye eye,
-											const RAS_Rect& viewport, const RAS_Rect& area) const
+mt::mat4 KX_KetsjiEngine::GetCameraProjectionMatrix(KX_Scene *scene, KX_Camera *cam, RAS_Rasterizer::StereoMode stereoMode,
+                                                    RAS_Rasterizer::StereoEye eye, const RAS_Rect& viewport, const RAS_Rect& area) const
 {
 	if (cam->hasValidProjectionMatrix()) {
 		return cam->GetProjectionMatrix();
 	}
 
-	const bool override_camera = (m_flags & CAMERA_OVERRIDE) && (scene->GetName() == m_overrideSceneName) &&
-		(cam->GetName() == "__default__cam__");
+	const bool override_camera = ((m_flags & CAMERA_OVERRIDE) != 0) && (scene->GetName() == m_overrideSceneName) &&
+	                             (cam->GetName() == "__default__cam__");
 
-	MT_Matrix4x4 projmat;
+	mt::mat4 projmat;
 	if (override_camera && !m_overrideCamData.m_perspective) {
 		// needed to get frustum planes for culling
 		projmat = m_overrideCamProjMat;
 	}
 	else {
-		RAS_FrameFrustum frustum;
+		RAS_FrameFrustum frustum{};
 		const bool orthographic = !cam->GetCameraData()->m_perspective;
 		const float nearfrust = cam->GetCameraNear();
 		const float farfrust = cam->GetCameraFar();
 		const float focallength = cam->GetFocalLength();
 
-		const float camzoom = override_camera ? m_overrideCamZoom : m_cameraZoom;
+		const float camzoom = cam->GetZoom();
 		if (orthographic) {
 
 			RAS_FramingManager::ComputeOrtho(
-			    scene->GetFramingType(),
-			    area,
-			    viewport,
-			    cam->GetScale(),
-			    nearfrust,
-			    farfrust,
-			    cam->GetSensorFit(),
-			    cam->GetShiftHorizontal(),
-			    cam->GetShiftVertical(),
-			    frustum);
+				scene->GetFramingType(),
+				area,
+				viewport,
+				cam->GetScale(),
+				nearfrust,
+				farfrust,
+				cam->GetSensorFit(),
+				cam->GetShiftHorizontal(),
+				cam->GetShiftVertical(),
+				frustum);
 
 			if (!cam->GetViewport()) {
 				frustum.x1 *= camzoom;
@@ -820,23 +924,23 @@ MT_Matrix4x4 KX_KetsjiEngine::GetCameraProjectionMatrix(KX_Scene *scene, KX_Came
 				frustum.y2 *= camzoom;
 			}
 			projmat = m_rasterizer->GetOrthoMatrix(
-			    frustum.x1, frustum.x2, frustum.y1, frustum.y2, frustum.camnear, frustum.camfar);
+				frustum.x1, frustum.x2, frustum.y1, frustum.y2, frustum.camnear, frustum.camfar);
 
 		}
 		else {
 			RAS_FramingManager::ComputeFrustum(
-			    scene->GetFramingType(),
-			    area,
-			    viewport,
-			    cam->GetLens(),
-			    cam->GetSensorWidth(),
-			    cam->GetSensorHeight(),
-			    cam->GetSensorFit(),
-			    cam->GetShiftHorizontal(),
-			    cam->GetShiftVertical(),
-			    nearfrust,
-			    farfrust,
-			    frustum);
+				scene->GetFramingType(),
+				area,
+				viewport,
+				cam->GetLens(),
+				cam->GetSensorWidth(),
+				cam->GetSensorHeight(),
+				cam->GetSensorFit(),
+				cam->GetShiftHorizontal(),
+				cam->GetShiftVertical(),
+				nearfrust,
+				farfrust,
+				frustum);
 
 			if (!cam->GetViewport()) {
 				frustum.x1 *= camzoom;
@@ -844,8 +948,8 @@ MT_Matrix4x4 KX_KetsjiEngine::GetCameraProjectionMatrix(KX_Scene *scene, KX_Came
 				frustum.y1 *= camzoom;
 				frustum.y2 *= camzoom;
 			}
-			projmat = m_rasterizer->GetFrustumMatrix(
-				eye, frustum.x1, frustum.x2, frustum.y1, frustum.y2, frustum.camnear, frustum.camfar, focallength);
+			projmat = m_rasterizer->GetFrustumMatrix(stereoMode, eye, focallength,
+			                                         frustum.x1, frustum.x2, frustum.y1, frustum.y2, frustum.camnear, frustum.camfar);
 		}
 	}
 
@@ -853,22 +957,28 @@ MT_Matrix4x4 KX_KetsjiEngine::GetCameraProjectionMatrix(KX_Scene *scene, KX_Came
 }
 
 // update graphics
-void KX_KetsjiEngine::RenderCamera(KX_Scene *scene, const CameraRenderData& cameraFrameData, unsigned short pass)
+void KX_KetsjiEngine::RenderCamera(KX_Scene *scene, const CameraRenderData& cameraFrameData, RAS_OffScreen *offScreen,
+                                   unsigned short pass, bool isFirstScene)
 {
 	KX_Camera *rendercam = cameraFrameData.m_renderCamera;
-	//KX_Camera *cullingcam = cameraFrameData.m_cullingCamera;
-	//const RAS_Rect &area = cameraFrameData.m_area;
+	KX_Camera *cullingcam = cameraFrameData.m_cullingCamera;
+	const RAS_Rect &area = cameraFrameData.m_area;
 	const RAS_Rect &viewport = cameraFrameData.m_viewport;
 
 	KX_SetActiveScene(scene);
+
+	/* Render texture probes depending of the the current viewport and area, these texture probes are commonly the planar map
+	 * which need to be recomputed by each view in case of multi-viewport or stereo.
+	 */
+	scene->RenderTextureRenderers(KX_TextureRendererManager::VIEWPORT_DEPENDENT, m_rasterizer, offScreen, rendercam, viewport, area);
 
 	// set the viewport for this frame and scene
 	const int left = viewport.GetLeft();
 	const int bottom = viewport.GetBottom();
 	const int width = viewport.GetWidth();
 	const int height = viewport.GetHeight();
-	m_rasterizer->SetViewport(left, bottom, width + 1, height + 1);
-	m_rasterizer->SetScissor(left, bottom, width + 1, height + 1);
+	m_rasterizer->SetViewport(left, bottom, width, height);
+	m_rasterizer->SetScissor(left, bottom, width, height);
 
 	/* Clear the depth after setting the scene viewport/scissor
 	 * if it's not the first render pass. */
@@ -878,63 +988,79 @@ void KX_KetsjiEngine::RenderCamera(KX_Scene *scene, const CameraRenderData& came
 
 	m_rasterizer->SetEye(cameraFrameData.m_eye);
 
-	m_logger.StartLog(tc_scenegraph, m_kxsystem->GetTimeInSeconds());
+	m_rasterizer->SetProjectionMatrix(rendercam->GetProjectionMatrix());
+	m_rasterizer->SetViewMatrix(rendercam->GetModelviewMatrix(), rendercam->NodeGetWorldScaling());
 
-	//KX_CullingNodeList nodes;
-	//scene->CalculateVisibleMeshes(nodes, cullingcam, 0);
+	if (isFirstScene) {
+		KX_WorldInfo *worldInfo = scene->GetWorldInfo();
+		// Update background and render it.
+		worldInfo->UpdateBackGround(m_rasterizer);
+		worldInfo->RenderBackground(m_rasterizer);
+	}
 
-	m_logger.StartLog(tc_animations, m_kxsystem->GetTimeInSeconds());
+	// The following actually reschedules all vertices to be
+	// redrawn. There is a cache between the actual rescheduling
+	// and this call though. Visibility is imparted when this call
+	// runs through the individual objects.
+
+	m_logger.StartLog(tc_scenegraph);
+
+	const std::vector<KX_GameObject *> objects = scene->CalculateVisibleMeshes(cullingcam, 0);
+
+	// update levels of detail
+	scene->UpdateObjectLods(cullingcam, objects);
+
+	m_logger.StartLog(tc_animations);
 	UpdateAnimations(scene);
 
-	m_logger.StartLog(tc_rasterizer, m_kxsystem->GetTimeInSeconds());
+	m_logger.StartLog(tc_rasterizer);
 
-	//RAS_DebugDraw& debugDraw = m_rasterizer->GetDebugDraw(scene);
-	// Draw debug infos.
-	//scene->DrawDebug(debugDraw, nodes);
+	// Draw debug infos like bouding box, armature ect.. if enabled.
+	scene->DrawDebug(objects, m_showBoundingBox, m_showArmature);
+	// Draw debug camera frustum.
+	DrawDebugCameraFrustum(scene, cameraFrameData);
+	DrawDebugShadowFrustum(scene);
 
 #ifdef WITH_PYTHON
-	PHY_SetActiveEnvironment(scene->GetPhysicsEnvironment());
 	// Run any pre-drawing python callbacks
 	scene->RunDrawingCallbacks(KX_Scene::PRE_DRAW, rendercam);
 #endif
 
-	//scene->RenderBucketsNew(nodes, m_rasterizer);
+	scene->RenderBuckets(objects, m_rasterizer->GetDrawingMode(), rendercam->GetWorldToCamera(), m_rasterizer, offScreen);
 
-	scene->RenderAfterCameraSetup(false);
-
-	//if (scene->GetPhysicsEnvironment())
-		//scene->GetPhysicsEnvironment()->DebugDrawWorld();
+	if (scene->GetPhysicsEnvironment()) {
+		scene->GetPhysicsEnvironment()->DebugDrawWorld();
+	}
 }
 
 /*
  * To run once per scene
  */
-RAS_FrameBuffer *KX_KetsjiEngine::PostRenderScene(KX_Scene *scene, RAS_FrameBuffer *inputfb, RAS_FrameBuffer *targetfb)
+RAS_OffScreen *KX_KetsjiEngine::PostRenderScene(KX_Scene *scene, RAS_OffScreen *inputofs, RAS_OffScreen *targetofs)
 {
 	KX_SetActiveScene(scene);
 
-	m_rasterizer->FlushDebugDraw(scene, m_canvas);
+	scene->FlushDebugDraw(m_rasterizer, m_canvas);
 
 	// We need to first make sure our viewport is correct (enabling multiple viewports can mess this up), only for filters.
 	const int width = m_canvas->GetWidth();
 	const int height = m_canvas->GetHeight();
-	m_rasterizer->SetViewport(0, 0, width + 1, height + 1);
-	m_rasterizer->SetScissor(0, 0, width + 1, height + 1);
+	m_rasterizer->SetViewport(0, 0, width, height);
+	m_rasterizer->SetScissor(0, 0, width, height);
 
-	RAS_FrameBuffer *frameBuffer = scene->Render2DFilters(m_rasterizer, m_canvas, inputfb, targetfb);
+	RAS_OffScreen *offScreen = scene->Render2DFilters(m_rasterizer, m_canvas, inputofs, targetofs);
 
 #ifdef WITH_PYTHON
-	PHY_SetActiveEnvironment(scene->GetPhysicsEnvironment());
 	/* We can't deduce what camera should be passed to the python callbacks
 	 * because the post draw callbacks are per scenes and not per cameras.
 	 */
 	scene->RunDrawingCallbacks(KX_Scene::POST_DRAW, nullptr);
 
 	// Python draw callback can also call debug draw functions, so we have to clear debug shapes.
-	m_rasterizer->FlushDebugDraw(scene, m_canvas);
+	scene->FlushDebugDraw(m_rasterizer, m_canvas);
 #endif
 
-	return frameBuffer;
+	return offScreen;
 }
 
 void KX_KetsjiEngine::StopEngine()
@@ -944,7 +1070,7 @@ void KX_KetsjiEngine::StopEngine()
 
 		while (m_scenes->GetCount() > 0) {
 			KX_Scene *scene = m_scenes->GetFront();
-			m_converter->RemoveScene(scene);
+			DestructScene(scene);
 			// WARNING: here the scene is a dangling pointer.
 			m_scenes->Remove(0);
 		}
@@ -964,7 +1090,7 @@ void KX_KetsjiEngine::AddScene(KX_Scene *scene)
 
 void KX_KetsjiEngine::PostProcessScene(KX_Scene *scene)
 {
-	bool override_camera = ((m_flags & CAMERA_OVERRIDE) && (scene->GetName() == m_overrideSceneName));
+	bool override_camera = (((m_flags & CAMERA_OVERRIDE) != 0) && (scene->GetName() == m_overrideSceneName));
 
 	// if there is no activecamera, or the camera is being
 	// overridden we need to construct a temporary camera
@@ -976,19 +1102,18 @@ void KX_KetsjiEngine::PostProcessScene(KX_Scene *scene)
 
 		// set transformation
 		if (override_camera) {
-			MT_Transform trans = m_overrideCamViewMat.toTransform();
-			MT_Transform camtrans;
-			camtrans.invert(trans);
+			const mt::mat3x4 trans = mt::mat3x4::ToAffineTransform(m_overrideCamViewMat);
+			const mt::mat3x4 camtrans = trans.Inverse();
 
-			activecam->NodeSetLocalPosition(camtrans.getOrigin());
-			activecam->NodeSetLocalOrientation(camtrans.getBasis());
-			activecam->NodeUpdateGS(0.0f);
+			activecam->NodeSetLocalPosition(camtrans.TranslationVector3D());
+			activecam->NodeSetLocalOrientation(camtrans.RotationMatrix());
 		}
 		else {
-			activecam->NodeSetLocalPosition(MT_Vector3(0.0f, 0.0f, 0.0f));
-			activecam->NodeSetLocalOrientation(MT_Matrix3x3(MT_Vector3(0.0f, 0.0f, 0.0f)));
-			activecam->NodeUpdateGS(0.0f);
+			activecam->NodeSetLocalPosition(mt::zero3);
+			activecam->NodeSetLocalOrientation(mt::mat3::Identity());
 		}
+
+		activecam->NodeUpdate();
 
 		scene->GetCameraList()->Add(CM_AddRef(activecam));
 		scene->SetActiveCamera(activecam);
@@ -998,7 +1123,7 @@ void KX_KetsjiEngine::PostProcessScene(KX_Scene *scene)
 		activecam->Release();
 	}
 
-	scene->UpdateParents(0.0f);
+	scene->UpdateParents();
 }
 
 void KX_KetsjiEngine::RenderDebugProperties()
@@ -1021,15 +1146,12 @@ void KX_KetsjiEngine::RenderDebugProperties()
 		tottime = 1e-6f;
 	}
 
-	static const MT_Vector4 white(1.0f, 1.0f, 1.0f, 1.0f);
-
-	// Use nullptrfor no scene.
-	RAS_DebugDraw& debugDraw = m_rasterizer->GetDebugDraw(nullptr);
+	static const mt::vec4 white(1.0f, 1.0f, 1.0f, 1.0f);
 
 	if (m_flags & (SHOW_FRAMERATE | SHOW_PROFILE)) {
 		// Title for profiling("Profile")
 		// Adds the constant x indent (0 for now) to the title x margin
-		debugDraw.RenderText2D("Profile", MT_Vector2(xcoord + const_xindent + title_xmargin, ycoord), white);
+		m_debugDraw.RenderText2d("Profile", mt::vec2(xcoord + const_xindent + title_xmargin, ycoord), white);
 
 		// Increase the indent by default increase
 		ycoord += const_ysize;
@@ -1039,12 +1161,12 @@ void KX_KetsjiEngine::RenderDebugProperties()
 
 	// Framerate display
 	if (m_flags & SHOW_FRAMERATE) {
-		debugDraw.RenderText2D("Frametime :",
-		                           MT_Vector2(xcoord + const_xindent,
-		                           ycoord), white);
+		m_debugDraw.RenderText2d("Frametime :",
+		                       mt::vec2(xcoord + const_xindent,
+		                                ycoord), white);
 
 		debugtxt = (boost::format("%5.2fms (%.1ffps)") %  (tottime * 1000.0f) % (1.0f / tottime)).str();
-		debugDraw.RenderText2D(debugtxt, MT_Vector2(xcoord + const_xindent + profile_indent, ycoord), white);
+		m_debugDraw.RenderText2d(debugtxt, mt::vec2(xcoord + const_xindent + profile_indent, ycoord), white);
 		// Increase the indent by default increase
 		ycoord += const_ysize;
 	}
@@ -1052,18 +1174,38 @@ void KX_KetsjiEngine::RenderDebugProperties()
 	// Profile display
 	if (m_flags & SHOW_PROFILE) {
 		for (int j = tc_first; j < tc_numCategories; j++) {
-			debugDraw.RenderText2D(m_profileLabels[j], MT_Vector2(xcoord + const_xindent, ycoord), white);
+			m_debugDraw.RenderText2d(m_profileLabels[j], mt::vec2(xcoord + const_xindent, ycoord), white);
 
 			double time = m_logger.GetAverage((KX_TimeCategory)j);
 
-			debugtxt = (boost::format("%5.2fms | %d%%") % (time*1000.f) % (int)(time/tottime * 100.f)).str();
-			debugDraw.RenderText2D(debugtxt, MT_Vector2(xcoord + const_xindent + profile_indent, ycoord), white);
+			debugtxt = (boost::format("%5.2fms | %d%%") % (time * 1000.f) % (int)(time / tottime * 100.f)).str();
+			m_debugDraw.RenderText2d(debugtxt, mt::vec2(xcoord + const_xindent + profile_indent, ycoord), white);
 
-			const MT_Vector2 boxSize(50 * (time / tottime), 10);
-			debugDraw.RenderBox2D(MT_Vector2(xcoord + (int)(2.2 * profile_indent), ycoord), boxSize, white);
+			const mt::vec2 boxSize(50 * (time / tottime), 9);
+			m_debugDraw.RenderBox2d(mt::vec2(xcoord + (int)(2.2 * profile_indent), ycoord), boxSize, white);
 			ycoord += const_ysize;
 		}
 	}
+
+	if (m_flags & SHOW_RENDER_QUERIES) {
+		m_debugDraw.RenderText2d("Render Queries :", mt::vec2(xcoord + const_xindent + title_xmargin, ycoord), white);
+		ycoord += const_ysize;
+
+		for (unsigned short i = 0; i < QUERY_MAX; ++i) {
+			m_debugDraw.RenderText2d(m_renderQueriesLabels[i], mt::vec2(xcoord + const_xindent, ycoord), white);
+
+			if (i == QUERY_TIME) {
+				debugtxt = (boost::format("%.2fms") % (((float)m_renderQueries[i].Result()) / 1e6)).str();
+			}
+			else {
+				debugtxt = (boost::format("%i") % m_renderQueries[i].Result()).str();
+			}
+
+			m_debugDraw.RenderText2d(debugtxt, mt::vec2(xcoord + const_xindent + profile_indent, ycoord), white);
+			ycoord += const_ysize;
+		}
+	}
+
 	// Add the ymargin for titles below the other section of debug info
 	ycoord += title_y_top_margin;
 
@@ -1071,7 +1213,7 @@ void KX_KetsjiEngine::RenderDebugProperties()
 	if (m_flags & SHOW_DEBUG_PROPERTIES) {
 		// Title for debugging("Debug properties")
 		// Adds the constant x indent (0 for now) to the title x margin
-		debugDraw.RenderText2D("Debug Properties", MT_Vector2(xcoord + const_xindent + title_xmargin, ycoord), white);
+		m_debugDraw.RenderText2d("Debug Properties", mt::vec2(xcoord + const_xindent + title_xmargin, ycoord), white);
 
 		// Increase the indent by default increase
 		ycoord += const_ysize;
@@ -1082,42 +1224,50 @@ void KX_KetsjiEngine::RenderDebugProperties()
 		const unsigned short propsMax = (m_canvas->GetHeight() - ycoord) / const_ysize;
 
 		for (KX_Scene *scene : m_scenes) {
-			scene->RenderDebugProperties(debugDraw, const_xindent, const_ysize, xcoord, ycoord, propsMax);
+			scene->RenderDebugProperties(m_debugDraw, const_xindent, const_ysize, xcoord, ycoord, propsMax);
 		}
 	}
 
-	m_rasterizer->FlushDebugDraw(nullptr, m_canvas);
+	m_debugDraw.Flush(m_rasterizer, m_canvas);
 }
 
-void KX_KetsjiEngine::DrawDebugCameraFrustum(KX_Scene *scene, RAS_DebugDraw& debugDraw, const CameraRenderData& cameraFrameData)
+void KX_KetsjiEngine::DrawDebugCameraFrustum(KX_Scene *scene, const CameraRenderData& cameraFrameData)
 {
 	if (m_showCameraFrustum == KX_DebugOption::DISABLE) {
 		return;
 	}
 
+	RAS_DebugDraw& debugDraw = scene->GetDebugDraw();
 	for (KX_Camera *cam : scene->GetCameraList()) {
 		if (cam != cameraFrameData.m_renderCamera && (m_showCameraFrustum == KX_DebugOption::FORCE || cam->GetShowCameraFrustum())) {
-			const MT_Matrix4x4 viewmat = m_rasterizer->GetViewMatrix(cameraFrameData.m_eye, cam->GetWorldToCamera(), cam->GetCameraData()->m_perspective);
-			const MT_Matrix4x4 projmat = GetCameraProjectionMatrix(scene, cam, cameraFrameData.m_eye, cameraFrameData.m_viewport, cameraFrameData.m_area);
+			const mt::mat4 viewmat = m_rasterizer->GetViewMatrix(cameraFrameData.m_stereoMode, cameraFrameData.m_eye,
+			                                                     cam->GetWorldToCamera(), cam->GetCameraData()->m_perspective);
+			const mt::mat4 projmat = GetCameraProjectionMatrix(scene, cam, cameraFrameData.m_stereoMode, cameraFrameData.m_eye,
+			                                                   cameraFrameData.m_viewport, cameraFrameData.m_area);
 			debugDraw.DrawCameraFrustum(projmat * viewmat);
 		}
 	}
 }
 
-void KX_KetsjiEngine::DrawDebugShadowFrustum(KX_Scene *scene, RAS_DebugDraw& debugDraw)
+void KX_KetsjiEngine::DrawDebugShadowFrustum(KX_Scene *scene)
 {
 	if (m_showShadowFrustum == KX_DebugOption::DISABLE) {
 		return;
 	}
 
+	RAS_DebugDraw& debugDraw = scene->GetDebugDraw();
 	for (KX_LightObject *light : scene->GetLightList()) {
+		RAS_ILightObject *raslight = light->GetLightData();
 		if (m_showShadowFrustum == KX_DebugOption::FORCE || light->GetShowShadowFrustum()) {
-			debugDraw.DrawCameraFrustum(light->GetShadowFrustumMatrix().inverse());
+			const mt::mat4 projmat(raslight->GetWinMat());
+			const mt::mat4 viewmat(raslight->GetViewMat());
+
+			debugDraw.DrawCameraFrustum(projmat * viewmat);
 		}
 	}
 }
 
-CListValue<KX_Scene> *KX_KetsjiEngine::CurrentScenes()
+EXP_ListValue<KX_Scene> *KX_KetsjiEngine::CurrentScenes()
 {
 	return m_scenes;
 }
@@ -1129,12 +1279,6 @@ KX_Scene *KX_KetsjiEngine::FindScene(const std::string& scenename)
 
 void KX_KetsjiEngine::ConvertAndAddScene(const std::string& scenename, bool overlay)
 {
-	/****************EEVEE INTEGRATION*****************/
-	// DISABLE OVERLAY AND BACKGROUND SCENES FOR NOW
-	std::cout << "KX_KetsjiEngine::ConvertAndAddScene: Overlay and Background Scenes are temporarly disabled during eevee integration" << std::endl;
-	return;
-	/**************************************************/
-
 	// only add scene when it doesn't exist!
 	if (FindScene(scenename)) {
 		CM_Warning("scene " << scenename << " already exists, not added!");
@@ -1151,11 +1295,6 @@ void KX_KetsjiEngine::ConvertAndAddScene(const std::string& scenename, bool over
 
 void KX_KetsjiEngine::RemoveScene(const std::string& scenename)
 {
-	/****************EEVEE INTEGRATION*****************/
-	// DISABLE REMOVE SCENES FOR NOW
-	std::cout << "KX_KetsjiEngine::RemoveScene: Remove Scenes is temporarly disabled during eevee integration" << std::endl;
-	return;
-	/**************************************************/
 	if (FindScene(scenename)) {
 		m_removingScenes.push_back(scenename);
 	}
@@ -1166,14 +1305,14 @@ void KX_KetsjiEngine::RemoveScene(const std::string& scenename)
 
 void KX_KetsjiEngine::RemoveScheduledScenes()
 {
-	if (m_removingScenes.size()) {
+	if (!m_removingScenes.empty()) {
 		std::vector<std::string>::iterator scenenameit;
 		for (scenenameit = m_removingScenes.begin(); scenenameit != m_removingScenes.end(); scenenameit++) {
 			std::string scenename = *scenenameit;
 
 			KX_Scene *scene = FindScene(scenename);
 			if (scene) {
-				m_converter->RemoveScene(scene);
+				DestructScene(scene);
 				m_scenes->RemoveValue(scene);
 			}
 		}
@@ -1181,15 +1320,13 @@ void KX_KetsjiEngine::RemoveScheduledScenes()
 	}
 }
 
-KX_Scene *KX_KetsjiEngine::CreateScene(Scene *scene, bool libloading)
+KX_Scene *KX_KetsjiEngine::CreateScene(Scene *scene)
 {
 	KX_Scene *tmpscene = new KX_Scene(m_inputDevice,
 	                                  scene->id.name + 2,
 	                                  scene,
 	                                  m_canvas,
-									  m_networkMessageManager);
-
-	m_converter->ConvertScene(tmpscene, m_rasterizer, m_canvas, libloading);
+	                                  m_networkMessageManager);
 
 	return tmpscene;
 }
@@ -1197,24 +1334,21 @@ KX_Scene *KX_KetsjiEngine::CreateScene(Scene *scene, bool libloading)
 KX_Scene *KX_KetsjiEngine::CreateScene(const std::string& scenename)
 {
 	Scene *scene = m_converter->GetBlenderSceneForName(scenename);
-	if (!scene)
+	if (!scene) {
 		return nullptr;
+	}
 
-	return CreateScene(scene, false);
+	return CreateScene(scene);
 }
 
 void KX_KetsjiEngine::AddScheduledScenes()
 {
-	std::vector<std::string>::iterator scenenameit;
-
-	if (m_addingOverlayScenes.size()) {
-		for (scenenameit = m_addingOverlayScenes.begin();
-		     scenenameit != m_addingOverlayScenes.end();
-		     scenenameit++)
-		{
-			std::string scenename = *scenenameit;
+	if (!m_addingOverlayScenes.empty()) {
+		for (const std::string& scenename : m_addingOverlayScenes) {
 			KX_Scene *tmpscene = CreateScene(scenename);
+
 			if (tmpscene) {
+				m_converter->ConvertScene(tmpscene);
 				m_scenes->Add(CM_AddRef(tmpscene));
 				PostProcessScene(tmpscene);
 				tmpscene->Release();
@@ -1226,14 +1360,12 @@ void KX_KetsjiEngine::AddScheduledScenes()
 		m_addingOverlayScenes.clear();
 	}
 
-	if (m_addingBackgroundScenes.size()) {
-		for (scenenameit = m_addingBackgroundScenes.begin();
-		     scenenameit != m_addingBackgroundScenes.end();
-		     scenenameit++)
-		{
-			std::string scenename = *scenenameit;
+	if (!m_addingBackgroundScenes.empty()) {
+		for (const std::string& scenename : m_addingBackgroundScenes) {
 			KX_Scene *tmpscene = CreateScene(scenename);
+
 			if (tmpscene) {
+				m_converter->ConvertScene(tmpscene);
 				m_scenes->Insert(0, CM_AddRef(tmpscene));
 				PostProcessScene(tmpscene);
 				tmpscene->Release();
@@ -1254,8 +1386,8 @@ bool KX_KetsjiEngine::ReplaceScene(const std::string& oldscene, const std::strin
 	// for a game that did a replace followed by a lib load with the
 	// new scene in the lib => it won't work anymore, the lib
 	// must be loaded before doing the replace.
-	if (m_converter->GetBlenderSceneForName(newscene) != nullptr) {
-		m_replace_scenes.push_back(std::make_pair(oldscene, newscene));
+	if (m_converter->GetBlenderSceneForName(newscene)) {
+		m_replace_scenes.emplace_back(oldscene, newscene);
 		return true;
 	}
 
@@ -1268,7 +1400,7 @@ bool KX_KetsjiEngine::ReplaceScene(const std::string& oldscene, const std::strin
 // stupid to rely on the mem allocation order...
 void KX_KetsjiEngine::ReplaceScheduledScenes()
 {
-	if (m_replace_scenes.size()) {
+	if (!m_replace_scenes.empty()) {
 		std::vector<std::pair<std::string, std::string> >::iterator scenenameit;
 
 		for (scenenameit = m_replace_scenes.begin();
@@ -1284,9 +1416,11 @@ void KX_KetsjiEngine::ReplaceScheduledScenes()
 					// avoid crash if the new scene doesn't exist, just do nothing
 					Scene *blScene = m_converter->GetBlenderSceneForName(newscenename);
 					if (blScene) {
-						m_converter->RemoveScene(scene);
+						DestructScene(scene);
 
-						KX_Scene *tmpscene = CreateScene(blScene, false);
+						KX_Scene *tmpscene = CreateScene(blScene);
+						m_converter->ConvertScene(tmpscene);
+
 						m_scenes->SetValue(sce_idx, CM_AddRef(tmpscene));
 						PostProcessScene(tmpscene);
 						tmpscene->Release();
@@ -1317,6 +1451,12 @@ void KX_KetsjiEngine::ResumeScene(const std::string& scenename)
 	}
 }
 
+void KX_KetsjiEngine::DestructScene(KX_Scene *scene)
+{
+	scene->RunOnRemoveCallbacks();
+	m_converter->RemoveScene(scene);
+}
+
 double KX_KetsjiEngine::GetTicRate()
 {
 	return m_ticrate;
@@ -1332,9 +1472,9 @@ double KX_KetsjiEngine::GetTimeScale() const
 	return m_timescale;
 }
 
-void KX_KetsjiEngine::SetTimeScale(double timescale)
+void KX_KetsjiEngine::SetTimeScale(double timeScale)
 {
-	m_timescale = timescale;
+	m_timescale = timeScale;
 }
 
 int KX_KetsjiEngine::GetMaxLogicFrame()
@@ -1364,7 +1504,7 @@ double KX_KetsjiEngine::GetAnimFrameRate()
 
 bool KX_KetsjiEngine::GetFlag(FlagType flag) const
 {
-	return (m_flags & flag);
+	return (m_flags & flag) != 0;
 }
 
 void KX_KetsjiEngine::SetFlag(FlagType flag, bool enable)
@@ -1377,7 +1517,7 @@ void KX_KetsjiEngine::SetFlag(FlagType flag, bool enable)
 	}
 }
 
-double KX_KetsjiEngine::GetClockTime(void) const
+double KX_KetsjiEngine::GetClockTime() const
 {
 	return m_clockTime;
 }
@@ -1387,14 +1527,14 @@ void KX_KetsjiEngine::SetClockTime(double externalClockTime)
 	m_clockTime = externalClockTime;
 }
 
-double KX_KetsjiEngine::GetFrameTime(void) const
+double KX_KetsjiEngine::GetFrameTime() const
 {
 	return m_frameTime;
 }
 
-double KX_KetsjiEngine::GetRealTime(void) const
+double KX_KetsjiEngine::GetRealTime() const
 {
-	return m_kxsystem->GetTimeInSeconds();
+	return m_clock.GetTimeSecond();
 }
 
 void KX_KetsjiEngine::SetAnimFrameRate(double framerate)
@@ -1407,14 +1547,14 @@ double KX_KetsjiEngine::GetAverageFrameRate()
 	return m_average_framerate;
 }
 
-void KX_KetsjiEngine::SetExitKey(short key)
+void KX_KetsjiEngine::SetExitKey(SCA_IInputDevice::SCA_EnumInputs key)
 {
-	m_exitkey = key;
+	m_exitKey = key;
 }
 
-short KX_KetsjiEngine::GetExitKey()
+SCA_IInputDevice::SCA_EnumInputs KX_KetsjiEngine::GetExitKey() const
 {
-	return m_exitkey;
+	return m_exitKey;
 }
 
 void KX_KetsjiEngine::SetRender(bool render)
@@ -1427,18 +1567,19 @@ bool KX_KetsjiEngine::GetRender()
 	return m_doRender;
 }
 
-void KX_KetsjiEngine::ProcessScheduledScenes(void)
+void KX_KetsjiEngine::ProcessScheduledScenes()
 {
 	// Check whether there will be changes to the list of scenes
-	if (m_addingOverlayScenes.size() ||
-	    m_addingBackgroundScenes.size() ||
-	    m_replace_scenes.size() ||
-	    m_removingScenes.size()) {
-
+	if (!(m_addingOverlayScenes.empty() && m_addingBackgroundScenes.empty() &&
+	      m_replace_scenes.empty() && m_removingScenes.empty())) {
 		// Change the scene list
 		ReplaceScheduledScenes();
 		RemoveScheduledScenes();
 		AddScheduledScenes();
+	}
+
+	if (m_scenes->Empty()) {
+		RequestExit(KX_ExitInfo::NO_SCENES_LEFT);
 	}
 }
 
@@ -1501,7 +1642,7 @@ void KX_KetsjiEngine::SetGlobalSettings(GlobalSettings *gs)
 	m_globalsettings.glslflag = gs->glslflag;
 }
 
-GlobalSettings *KX_KetsjiEngine::GetGlobalSettings(void)
+GlobalSettings *KX_KetsjiEngine::GetGlobalSettings()
 {
 	return &m_globalsettings;
 }

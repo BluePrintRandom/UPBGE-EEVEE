@@ -31,12 +31,11 @@
 #include <vector>
 
 class KX_Scene;
-class RAS_Rasterizer;
-class KX_BlenderSceneConverter;
+class BL_SceneConverter;
 class KX_LodLevel;
 struct Object;
 
-class KX_LodManager : public CValue
+class KX_LodManager : public EXP_Value
 {
 	Py_Header
 
@@ -48,13 +47,13 @@ private:
 	class LodLevelIterator
 	{
 	private:
-		const std::vector<KX_LodLevel *>& m_levels;
+		const std::vector<KX_LodLevel>& m_levels;
 		short m_index;
 		KX_Scene *m_scene;
 		float GetHysteresis(unsigned short level) const;
 
 	public:
-		LodLevelIterator(const std::vector<KX_LodLevel *>& levels, unsigned short index, KX_Scene *scene);
+		LodLevelIterator(const std::vector<KX_LodLevel>& levels, unsigned short index, KX_Scene *scene);
 
 		int operator++();
 		int operator--();
@@ -65,7 +64,7 @@ private:
 		bool operator>(float distance2) const;
 	};
 
-	std::vector<KX_LodLevel *> m_levels;
+	std::vector<KX_LodLevel> m_levels;
 
 	/** Get the hysteresis from the level or the scene.
 	 * \param scene Scene used to get default hysteresis.
@@ -79,7 +78,7 @@ private:
 	float m_distanceFactor;
 
 public:
-	KX_LodManager(Object *ob, KX_Scene *scene, RAS_Rasterizer *rasty, KX_BlenderSceneConverter& converter, bool libloading);
+	KX_LodManager(Object *ob, KX_Scene *scene, BL_SceneConverter& converter);
 	virtual ~KX_LodManager();
 
 	virtual std::string GetName();
@@ -90,7 +89,8 @@ public:
 	/** Get lod level by index.
 	 * \param index The lod level index.
 	 */
-	KX_LodLevel *GetLevel(unsigned int index) const;
+	const KX_LodLevel& GetLevel(unsigned int index) const;
+	KX_LodLevel& GetLevel(unsigned int index);
 
 	/** Get lod level cooresponding to distance and previous level.
 	 * \param scene Scene used to get default hysteresis.
@@ -98,11 +98,14 @@ public:
 	 *   Use -1 to disable the hysteresis when the lod manager has changed.
 	 * \param distance2 Squared distance object to the camera.
 	 */
-	KX_LodLevel *GetLevel(KX_Scene *scene, short previouslod, float distance);
+	const KX_LodLevel& GetLevel(KX_Scene *scene, short previouslod, float distance);
 
 #ifdef WITH_PYTHON
 
-	static PyObject *pyattr_get_levels(PyObjectPlus *self_v, const KX_PYATTRIBUTE_DEF *attrdef);
+	static PyObject *pyattr_get_levels(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef);
+
+	unsigned int py_get_levels_size();
+	PyObject *py_get_levels_item(unsigned int index);
 
 #endif //WITH_PYTHON
 };

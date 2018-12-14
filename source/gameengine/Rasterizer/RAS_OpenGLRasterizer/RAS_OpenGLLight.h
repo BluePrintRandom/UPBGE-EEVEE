@@ -27,23 +27,39 @@
 
 #include "RAS_ILightObject.h"
 
+class RAS_Rasterizer;
+class KX_Scene;
+struct GPULamp;
+struct Image;
+
 class RAS_OpenGLLight : public RAS_ILightObject
 {
 
+	RAS_Rasterizer *m_rasterizer;
+
+	GPULamp *GetGPULamp();
+
 public:
-	RAS_OpenGLLight();
-	virtual ~RAS_OpenGLLight();
+	RAS_OpenGLLight(RAS_Rasterizer *ras);
+	~RAS_OpenGLLight();
 
-	RAS_OpenGLLight *Clone();
+	bool ApplyFixedFunctionLighting(KX_Scene *kxscene, int oblayer, int slot);
 
-	virtual bool HasShadow() const;
-	virtual bool NeedShadowUpdate();
-	virtual int GetShadowBindCode();
-	virtual MT_Matrix4x4 GetViewMat();
-	virtual MT_Matrix4x4 GetWinMat();
-	virtual MT_Matrix4x4 GetShadowMatrix();
-	virtual int GetShadowLayer();
-	virtual Image *GetTextureImage(short texslot);
+	RAS_OpenGLLight *Clone()
+	{
+		return new RAS_OpenGLLight(*this);
+	}
+
+	bool HasShadowBuffer();
+	bool NeedShadowUpdate();
+	int GetShadowBindCode();
+	mt::mat4 GetViewMat();
+	mt::mat4 GetWinMat();
+	mt::mat4 GetShadowMatrix();
+	int GetShadowLayer();
+	void BindShadowBuffer(RAS_ICanvas *canvas, KX_Camera *cam, mt::mat3x4& camtrans);
+	void UnbindShadowBuffer();
+	Image *GetTextureImage(short texslot);
+	void Update(const mt::mat3x4& trans, bool hide);
 	void SetShadowUpdateState(short state);
-
 };

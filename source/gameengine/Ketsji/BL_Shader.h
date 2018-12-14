@@ -6,13 +6,19 @@
 #ifndef __BL_SHADER_H__
 #define __BL_SHADER_H__
 
-#include "EXP_PyObjectPlus.h"
 #include "RAS_Shader.h"
 #include "RAS_Texture.h" // For RAS_Texture::MaxUnits.
+#include "RAS_AttributeArray.h" // For RAS_AttributeArray::AttribList.
+#include "RAS_Mesh.h" // For RAS_Mesh::LayersInfo.
 
-class RAS_MeshUser;
+#include "EXP_Value.h"
 
-class BL_Shader : public PyObjectPlus, public virtual RAS_Shader
+#include "CM_Update.h"
+
+class RAS_MeshSlot;
+class RAS_IMaterial;
+
+class BL_Shader : public EXP_Value, public virtual RAS_Shader
 {
 	Py_Header
 public:
@@ -23,6 +29,7 @@ public:
 	};
 
 	enum AttribTypes {
+		SHD_NONE = 0,
 		SHD_TANGENT = 1
 	};
 
@@ -31,18 +38,29 @@ private:
 	PyObject *m_callbacks[CALLBACKS_MAX];
 #endif  // WITH_PYTHON
 
+	AttribTypes m_attr;
+	CM_UpdateServer<RAS_IMaterial> *m_materialUpdateServer;
+
+	virtual bool LinkProgram();
+
 public:
-	BL_Shader();
+	BL_Shader(CM_UpdateServer<RAS_IMaterial> *materialUpdateServer);
 	virtual ~BL_Shader();
+
+	virtual std::string GetName();
+	virtual std::string GetText();
 
 #ifdef WITH_PYTHON
 	PyObject *GetCallbacks(CallbacksType type);
 	void SetCallbacks(CallbacksType type, PyObject *callbacks);
 #endif // WITH_PYTHON
 
-	virtual void SetProg(bool enable);
+	RAS_AttributeArray::AttribList GetAttribs(const RAS_Mesh::LayersInfo& layersInfo,
+			RAS_Texture *const textures[RAS_Texture::MaxUnits]) const;
 
-	/** Update the uniform shader for the current rendered mesh slot.
+	void BindProg();
+
+	/** Update the uniform shader for the current rendered mesh user (= object).
 	 * The python callbacks are executed in this function and at the end
 	 * RAS_Shader::Update(rasty, mat) is called.
 	 */
@@ -50,43 +68,39 @@ public:
 
 	// Python interface
 #ifdef WITH_PYTHON
-	virtual PyObject *py_repr()
-	{
-		return PyUnicode_FromFormat("BL_Shader\n\tvertex shader:%s\n\n\tfragment shader%s\n\n", m_progs[VERTEX_PROGRAM].c_str(), m_progs[FRAGMENT_PROGRAM].c_str());
-	}
 
-	static PyObject *pyattr_get_enabled(PyObjectPlus *self_v, const KX_PYATTRIBUTE_DEF *attrdef);
-	static int pyattr_set_enabled(PyObjectPlus *self_v, const KX_PYATTRIBUTE_DEF *attrdef, PyObject *value);
-	static PyObject *pyattr_get_callbacks(PyObjectPlus *self_v, const KX_PYATTRIBUTE_DEF *attrdef);
-	static int pyattr_set_callbacks(PyObjectPlus *self_v, const KX_PYATTRIBUTE_DEF *attrdef, PyObject *value);
+	static PyObject *pyattr_get_enabled(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef);
+	static int pyattr_set_enabled(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef, PyObject *value);
+	static PyObject *pyattr_get_callbacks(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef);
+	static int pyattr_set_callbacks(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef, PyObject *value);
 
 	// -----------------------------------
-	KX_PYMETHOD_DOC(BL_Shader, setSource);
-	KX_PYMETHOD_DOC(BL_Shader, setSourceList);
-	KX_PYMETHOD_DOC(BL_Shader, delSource);
-	KX_PYMETHOD_DOC(BL_Shader, getVertexProg);
-	KX_PYMETHOD_DOC(BL_Shader, getFragmentProg);
-	KX_PYMETHOD_DOC(BL_Shader, setNumberOfPasses);
-	KX_PYMETHOD_DOC(BL_Shader, isValid);
-	KX_PYMETHOD_DOC(BL_Shader, validate);
+	EXP_PYMETHOD_DOC(BL_Shader, setSource);
+	EXP_PYMETHOD_DOC(BL_Shader, setSourceList);
+	EXP_PYMETHOD_DOC(BL_Shader, delSource);
+	EXP_PYMETHOD_DOC(BL_Shader, getVertexProg);
+	EXP_PYMETHOD_DOC(BL_Shader, getFragmentProg);
+	EXP_PYMETHOD_DOC(BL_Shader, setNumberOfPasses);
+	EXP_PYMETHOD_DOC(BL_Shader, isValid);
+	EXP_PYMETHOD_DOC(BL_Shader, validate);
 
 	// -----------------------------------
-	KX_PYMETHOD_DOC(BL_Shader, setUniform4f);
-	KX_PYMETHOD_DOC(BL_Shader, setUniform3f);
-	KX_PYMETHOD_DOC(BL_Shader, setUniform2f);
-	KX_PYMETHOD_DOC(BL_Shader, setUniform1f);
-	KX_PYMETHOD_DOC(BL_Shader, setUniform4i);
-	KX_PYMETHOD_DOC(BL_Shader, setUniform3i);
-	KX_PYMETHOD_DOC(BL_Shader, setUniform2i);
-	KX_PYMETHOD_DOC(BL_Shader, setUniform1i);
-	KX_PYMETHOD_DOC(BL_Shader, setUniformEyef);
-	KX_PYMETHOD_DOC(BL_Shader, setUniformfv);
-	KX_PYMETHOD_DOC(BL_Shader, setUniformiv);
-	KX_PYMETHOD_DOC(BL_Shader, setUniformMatrix4);
-	KX_PYMETHOD_DOC(BL_Shader, setUniformMatrix3);
-	KX_PYMETHOD_DOC(BL_Shader, setUniformDef);
-	KX_PYMETHOD_DOC(BL_Shader, setAttrib);
-	KX_PYMETHOD_DOC(BL_Shader, setSampler);
+	EXP_PYMETHOD_DOC(BL_Shader, setUniform4f);
+	EXP_PYMETHOD_DOC(BL_Shader, setUniform3f);
+	EXP_PYMETHOD_DOC(BL_Shader, setUniform2f);
+	EXP_PYMETHOD_DOC(BL_Shader, setUniform1f);
+	EXP_PYMETHOD_DOC(BL_Shader, setUniform4i);
+	EXP_PYMETHOD_DOC(BL_Shader, setUniform3i);
+	EXP_PYMETHOD_DOC(BL_Shader, setUniform2i);
+	EXP_PYMETHOD_DOC(BL_Shader, setUniform1i);
+	EXP_PYMETHOD_DOC(BL_Shader, setUniformEyef);
+	EXP_PYMETHOD_DOC(BL_Shader, setUniformfv);
+	EXP_PYMETHOD_DOC(BL_Shader, setUniformiv);
+	EXP_PYMETHOD_DOC(BL_Shader, setUniformMatrix4);
+	EXP_PYMETHOD_DOC(BL_Shader, setUniformMatrix3);
+	EXP_PYMETHOD_DOC(BL_Shader, setUniformDef);
+	EXP_PYMETHOD_DOC(BL_Shader, setAttrib);
+	EXP_PYMETHOD_DOC(BL_Shader, setSampler);
 #endif
 };
 

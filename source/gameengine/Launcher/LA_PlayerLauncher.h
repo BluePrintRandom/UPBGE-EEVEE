@@ -53,12 +53,11 @@ protected:
 	virtual void RunPythonMainLoop(const std::string& pythonCode);
 #endif  // WITH_PYTHON
 
-	virtual RAS_ICanvas *CreateCanvas();
+	virtual RAS_ICanvas *CreateCanvas(RAS_Rasterizer *rasty);
 	virtual RAS_Rasterizer::DrawType GetRasterizerDrawMode();
-	virtual bool GetUseAlwaysExpandFraming();
 	virtual void InitCamera();
-	virtual void InitPython();
-	virtual void ExitPython();
+
+	virtual void SetWindowOrder(short order);
 
 public:
 	LA_PlayerLauncher(GHOST_ISystem *system, GHOST_IWindow *window, Main *maggie, Scene *scene, GlobalSettings *gs,
@@ -68,5 +67,5 @@ public:
 	virtual void InitEngine();
 	virtual void ExitEngine();
 
-	virtual bool EngineNextFrame();
+	virtual KX_ExitInfo EngineNextFrame();
 };

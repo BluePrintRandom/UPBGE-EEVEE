@@ -35,18 +35,15 @@
 #include "SG_QList.h"
 #include "SG_ParentRelation.h"
 
-#include "MT_Transform.h"
+#include "mathfu.h"
 
 #include "CM_Thread.h"
 
 #include <vector>
 #include <memory>
 
-class SG_Controller;
 class SG_Familly;
 class SG_Node;
-
-typedef std::vector<SG_Controller *> SGControllerList;
 
 typedef void * (*SG_ReplicationNewCallback)(SG_Node *sgnode, void *clientobj, void *clientinfo);
 typedef void * (*SG_DestructionNewCallback)(SG_Node *sgnode, void *clientobj, void *clientinfo);
@@ -71,28 +68,27 @@ typedef bool (*SG_RescheduleUpdateCallback)(SG_Node *sgnode, void *clientobj, vo
  */
 struct SG_Callbacks {
 	SG_Callbacks()
-	:m_replicafunc(nullptr),
-	m_destructionfunc(nullptr),
-	m_updatefunc(nullptr),
-	m_schedulefunc(nullptr),
-	m_reschedulefunc(nullptr)
+		:m_replicafunc(nullptr),
+		m_destructionfunc(nullptr),
+		m_updatefunc(nullptr),
+		m_schedulefunc(nullptr),
+		m_reschedulefunc(nullptr)
 	{
 	}
-	
-	SG_Callbacks(
-		SG_ReplicationNewCallback repfunc,
-		SG_DestructionNewCallback destructfunc,
-		SG_UpdateTransformCallback updatefunc,
-		SG_ScheduleUpdateCallback schedulefunc,
-		SG_RescheduleUpdateCallback reschedulefunc)
-	:m_replicafunc(repfunc),
-	m_destructionfunc(destructfunc),
-	m_updatefunc(updatefunc),
-	m_schedulefunc(schedulefunc),
-	m_reschedulefunc(reschedulefunc)
+
+	SG_Callbacks(SG_ReplicationNewCallback repfunc,
+	             SG_DestructionNewCallback destructfunc,
+	             SG_UpdateTransformCallback updatefunc,
+	             SG_ScheduleUpdateCallback schedulefunc,
+	             SG_RescheduleUpdateCallback reschedulefunc)
+		:m_replicafunc(repfunc),
+		m_destructionfunc(destructfunc),
+		m_updatefunc(updatefunc),
+		m_schedulefunc(schedulefunc),
+		m_reschedulefunc(reschedulefunc)
 	{
 	}
-	
+
 	SG_ReplicationNewCallback m_replicafunc;
 	SG_DestructionNewCallback m_destructionfunc;
 	SG_UpdateTransformCallback m_updatefunc;
@@ -105,9 +101,10 @@ typedef std::vector<SG_Node *> NodeList;
 /**
  * Scenegraph node.
  */
-class SG_Node : public SG_QList
+class SG_Node : public SG_QList, public mt::SimdClassAllocator
 {
 public:
+
 	enum DirtyFlag {
 		DIRTY_NONE = 0,
 		DIRTY_ALL = 0xFF,
@@ -145,7 +142,7 @@ public:
 	 * that.
 	 * \return a reference to the list of children of this node.
 	 */
-	NodeList& GetSGChildren();
+	const NodeList& GetChildren() const;
 
 	/**
 	 * Clear the list of children associated with this node
@@ -155,12 +152,12 @@ public:
 	/**
 	 * return the parent of this node if it exists.
 	 */
-	SG_Node *GetSGParent() const;
+	SG_Node *GetParent() const;
 
 	/**
 	 * Set the parent of this node.
 	 */
-	void SetSGParent(SG_Node *parent);
+	void SetParent(SG_Node *parent);
 
 	/**
 	 * Return the top node in this node's Scene graph hierarchy
@@ -186,8 +183,8 @@ public:
 	 * Update the spatial data of this node. Iterate through
 	 * the children of this node and update their world data.
 	 */
-	void UpdateWorldData(double time, bool parentUpdated = false);
-	void UpdateWorldDataThread(double time, bool parentUpdated = false);
+	void UpdateWorldData(bool parentUpdated = false);
+	void UpdateWorldDataThread(bool parentUpdated = false);
 
 	/**
 	 * Update the simulation time of this node. Iterate through
@@ -220,43 +217,11 @@ public:
 	/**
 	 * Node replication functions.
 	 */
-	SG_Node *GetSGReplica();
+	SG_Node *GetReplica();
 
 	void Destruct();
 
-	/**
-	 * Add a pointer to a controller allocated on the heap, to
-	 * this node. This memory for this controller becomes the
-	 * responsibility of this class. It will be deleted when
-	 * this object is deleted.
-	 */
-	void AddSGController(SG_Controller *cont);
-
-	/**
-	 * Remove a pointer to a controller from this node.
-	 * This does not delete the controller itself! Be careful to
-	 * avoid memory leaks.
-	 */
-	void RemoveSGController(SG_Controller *cont);
-
-	/**
-	 * Clear the array of pointers to controllers associated with
-	 * this node. This does not delete the controllers themselves!
-	 * This should be used very carefully to avoid memory
-	 * leaks.
-	 */
-	void RemoveAllControllers();
-
 	/// Needed for replication
-
-	/**
-	 * Return a reference to this node's controller list.
-	 * Whilst we don't wish to expose full control of the container
-	 * to the user we do allow them to call non_const methods
-	 * on pointers in the container. C++ topic: how to do this in
-	 * using STL?
-	 */
-	SGControllerList& GetSGControllerList();
 
 	SG_Callbacks& GetCallBackFunctions();
 
@@ -269,7 +234,7 @@ public:
 	 * upon replication and destruction
 	 * This may be nullptr.
 	 */
-	void *GetSGClientObject() const;
+	void *GetClientObject() const;
 
 	/**
 	 * Set the client object for this node. This is just a
@@ -277,16 +242,9 @@ public:
 	 * the duration of the lifetime of this object, or until
 	 * this function is called again.
 	 */
-	void SetSGClientObject(void *clientObject);
-	void *GetSGClientInfo() const;
-	void SetSGClientInfo(void *clientInfo);
-
-	/**
-	 * Set the current simulation time for this node.
-	 * The implementation of this function runs through
-	 * the nodes list of controllers and calls their SetSimulatedTime methods
-	 */
-	void SetControllerTime(double time);
+	void SetClientObject(void *clientObject);
+	void *GetClientInfo() const;
+	void SetClientInfo(void *clientInfo);
 
 	void ClearModified();
 	void SetModified();
@@ -316,28 +274,28 @@ public:
 	 * you must provide a pointer to the parent of this object if it
 	 * exists otherwise if there is no parent set it to nullptr
 	 */
-	void RelativeTranslate(const MT_Vector3& trans, const SG_Node *parent, bool local);
-	void SetLocalPosition(const MT_Vector3& trans);
-	void SetWorldPosition(const MT_Vector3& trans);
-	void RelativeRotate(const MT_Matrix3x3& rot, bool local);
-	void SetLocalOrientation(const MT_Matrix3x3& rot);
-	// rot is arrange like openGL matrix
-	void SetLocalOrientation(const float *rot);
-	void SetWorldOrientation(const MT_Matrix3x3& rot);
-	void RelativeScale(const MT_Vector3& scale);
-	void SetLocalScale(const MT_Vector3& scale);
-	void SetWorldScale(const MT_Vector3& scale);
+	void RelativeTranslate(const mt::vec3& trans, const SG_Node *parent, bool local);
+	void SetLocalPosition(const mt::vec3& trans);
+	void SetWorldPosition(const mt::vec3& trans);
+	void RelativeRotate(const mt::mat3& rot, bool local);
+	void SetLocalOrientation(const mt::mat3& rot);
+	void SetWorldOrientation(const mt::mat3& rot);
+	void RelativeScale(const mt::vec3& scale);
+	void SetLocalScale(const mt::vec3& scale);
+	void SetWorldScale(const mt::vec3& scale);
 
-	const MT_Vector3& GetLocalPosition() const;
-	const MT_Matrix3x3& GetLocalOrientation() const;
-	const MT_Vector3& GetLocalScale() const;
-	const MT_Vector3& GetWorldPosition() const;
-	const MT_Matrix3x3& GetWorldOrientation() const;
-	const MT_Vector3& GetWorldScaling() const;
+	const mt::vec3& GetLocalPosition() const;
+	const mt::mat3& GetLocalOrientation() const;
+	const mt::vec3& GetLocalScale() const;
+	const mt::vec3& GetWorldPosition() const;
+	const mt::mat3& GetWorldOrientation() const;
+	const mt::vec3& GetWorldScaling() const;
 
 	void SetWorldFromLocalTransform();
-	MT_Transform GetWorldTransform() const;
-	MT_Transform GetLocalTransform() const;
+	mt::mat3x4 GetWorldTransform() const;
+	mt::mat3x4 GetLocalTransform() const;
+
+	bool IsNegativeScaling() const;
 
 	bool ComputeWorldTransforms(const SG_Node *parent, bool& parentUpdated);
 
@@ -361,20 +319,18 @@ protected:
 	void ActivateRecheduleUpdateCallback();
 
 	/**
-	 * Update the world coordinates of this spatial node. This also informs
-	 * any controllers to update this object.
+	 * Update the world coordinates of this spatial node.
 	 */
-	bool UpdateSpatialData(const SG_Node *parent, double time, bool& parentUpdated);
+	void UpdateSpatialData(const SG_Node *parent, bool& parentUpdated);
 
 private:
-	void UpdateWorldDataThreadSchedule(double time, bool parentUpdated = false);
+	void UpdateWorldDataThreadSchedule(bool parentUpdated = false);
 
 	void ProcessSGReplica(SG_Node **replica);
 
-	void *m_SGclientObject;
-	void *m_SGclientInfo;
+	void *m_clientObject;
+	void *m_clientInfo;
 	SG_Callbacks m_callbacks;
-	SGControllerList m_SGcontrollers;
 
 	/**
 	 * The list of children of this node.
@@ -384,15 +340,15 @@ private:
 	/**
 	 * The parent of this node may be nullptr
 	 */
-	SG_Node *m_SGparent;
+	SG_Node *m_parent;
 
-	MT_Vector3 m_localPosition;
-	MT_Matrix3x3 m_localRotation;
-	MT_Vector3 m_localScaling;
+	mt::vec3 m_localPosition;
+	mt::mat3 m_localRotation;
+	mt::vec3 m_localScaling;
 
-	MT_Vector3 m_worldPosition;
-	MT_Matrix3x3 m_worldRotation;
-	MT_Vector3 m_worldScaling;
+	mt::vec3 m_worldPosition;
+	mt::mat3 m_worldRotation;
+	mt::vec3 m_worldScaling;
 
 	std::unique_ptr<SG_ParentRelation> m_parent_relation;
 

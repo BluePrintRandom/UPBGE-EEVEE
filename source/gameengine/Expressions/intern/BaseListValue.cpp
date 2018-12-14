@@ -1,7 +1,7 @@
 /** \file gameengine/Expressions/BaseListValue.cpp
  *  \ingroup expressions
  */
-// ListValue.cpp: implementation of the CBaseListValue class.
+// ListValue.cpp: implementation of the EXP_BaseListValue class.
 //
 //////////////////////////////////////////////////////////////////////
 /*
@@ -27,66 +27,64 @@
 
 #include "BLI_sys_types.h" // For intptr_t support.
 
-CBaseListValue::CBaseListValue()
+EXP_BaseListValue::EXP_BaseListValue()
 	:m_bReleaseContents(true)
 {
 }
 
-CBaseListValue::~CBaseListValue()
+EXP_BaseListValue::~EXP_BaseListValue()
 {
 	if (m_bReleaseContents) {
-		for (CValue *item : m_pValueArray) {
+		for (EXP_Value *item : m_valueArray) {
 			item->Release();
 		}
 	}
 }
 
-void CBaseListValue::SetValue(int i, CValue *val)
+void EXP_BaseListValue::SetValue(int i, EXP_Value *val)
 {
-	m_pValueArray[i] = val;
+	m_valueArray[i] = val;
 }
 
-CValue *CBaseListValue::GetValue(int i)
+EXP_Value *EXP_BaseListValue::GetValue(int i)
 {
-	return m_pValueArray[i];
+	return m_valueArray[i];
 }
 
-CValue *CBaseListValue::FindValue(const std::string& name) const
+EXP_Value *EXP_BaseListValue::FindValue(const std::string& name) const
 {
-	const VectorTypeConstIterator it = std::find_if(m_pValueArray.begin(), m_pValueArray.end(),
-										 [&name](CValue *item) { return item->GetName() == name; });
-	
-	if (it != m_pValueArray.end()) {
+	const VectorTypeConstIterator it = std::find_if(m_valueArray.begin(), m_valueArray.end(),
+	                                                [&name](EXP_Value *item) {
+		return item->GetName() == name;
+	});
+
+	if (it != m_valueArray.end()) {
 		return *it;
 	}
-	return NULL;
+	return nullptr;
 }
 
-bool CBaseListValue::SearchValue(CValue *val) const
+bool EXP_BaseListValue::SearchValue(EXP_Value *val) const
 {
-	const VectorTypeConstIterator it = std::find(m_pValueArray.begin(), m_pValueArray.end(), val);
-	if (it != m_pValueArray.end()) {
-		return true;
-	}
-	return false;
+	return (std::find(m_valueArray.begin(), m_valueArray.end(), val) != m_valueArray.end());
 }
 
-void CBaseListValue::Add(CValue *value)
+void EXP_BaseListValue::Add(EXP_Value *value)
 {
-	m_pValueArray.push_back(value);
+	m_valueArray.push_back(value);
 }
 
-void CBaseListValue::Insert(unsigned int i, CValue *value)
+void EXP_BaseListValue::Insert(unsigned int i, EXP_Value *value)
 {
-	m_pValueArray.insert(m_pValueArray.begin() + i, value);
+	m_valueArray.insert(m_valueArray.begin() + i, value);
 }
 
-bool CBaseListValue::RemoveValue(CValue *val)
+bool EXP_BaseListValue::RemoveValue(EXP_Value *val)
 {
 	bool result = false;
-	for (VectorTypeIterator it = m_pValueArray.begin(); it != m_pValueArray.end();) {
+	for (VectorTypeIterator it = m_valueArray.begin(); it != m_valueArray.end(); ) {
 		if (*it == val) {
-			it = m_pValueArray.erase(it);
+			it = m_valueArray.erase(it);
 			result = true;
 		}
 		else {
@@ -96,67 +94,72 @@ bool CBaseListValue::RemoveValue(CValue *val)
 	return result;
 }
 
-bool CBaseListValue::CheckEqual(CValue *first, CValue *second)
+bool EXP_BaseListValue::CheckEqual(EXP_Value *first, EXP_Value *second)
 {
 	bool result = false;
-	CValue *eqval = first->Calc(VALUE_EQL_OPERATOR, second);
-	if (eqval == NULL) {
+	EXP_Value *eqval = first->Calc(VALUE_EQL_OPERATOR, second);
+	if (eqval == nullptr) {
 		return false;
 	}
-	const std::string& text = eqval->GetText();
-	if (text == CBoolValue::sTrueString) {
+	std::string text = eqval->GetText();
+	if (text == EXP_BoolValue::sTrueString) {
 		result = true;
 	}
 	eqval->Release();
 	return result;
 }
 
-const std::string CBaseListValue::GetText()
+std::string EXP_BaseListValue::GetText()
 {
 	std::string strListRep = "[";
 	std::string commastr = "";
 
-	for (CValue *item : m_pValueArray) {
+	for (EXP_Value *item : m_valueArray) {
 		strListRep += commastr;
 		strListRep += item->GetText();
-		commastr = ",";
+		commastr = ", ";
 	}
 	strListRep += "]";
 
 	return strListRep;
 }
 
-int CBaseListValue::GetValueType()
+int EXP_BaseListValue::GetValueType()
 {
 	return VALUE_LIST_TYPE;
 }
 
-void CBaseListValue::SetReleaseOnDestruct(bool bReleaseContents)
+void EXP_BaseListValue::SetReleaseOnDestruct(bool bReleaseContents)
 {
 	m_bReleaseContents = bReleaseContents;
 }
 
-void CBaseListValue::Remove(int i)
+void EXP_BaseListValue::Remove(int i)
 {
-	m_pValueArray.erase(m_pValueArray.begin() + i);
+	m_valueArray.erase(m_valueArray.begin() + i);
 }
 
-void CBaseListValue::Resize(int num)
+void EXP_BaseListValue::Resize(int num)
 {
-	m_pValueArray.resize(num);
+	m_valueArray.resize(num);
 }
 
-void CBaseListValue::ReleaseAndRemoveAll()
+void EXP_BaseListValue::ReleaseAndRemoveAll()
 {
-	for (CValue *item : m_pValueArray) {
+	for (EXP_Value *item : m_valueArray) {
 		item->Release();
 	}
-	m_pValueArray.clear();
+	m_valueArray.clear();
 }
 
-int CBaseListValue::GetCount() const
+int EXP_BaseListValue::GetCount() const
 {
-	return m_pValueArray.size();
+	return m_valueArray.size();
+}
+
+bool EXP_BaseListValue::Empty() const
+{
+	return m_valueArray.empty();
 }
 
 #ifdef WITH_PYTHON
@@ -165,9 +168,9 @@ int CBaseListValue::GetCount() const
 /* Python interface ---------------------------------------------------- */
 /* --------------------------------------------------------------------- */
 
-Py_ssize_t CBaseListValue::bufferlen(PyObject *self)
+Py_ssize_t EXP_BaseListValue::bufferlen(PyObject *self)
 {
-	CBaseListValue *list = static_cast<CBaseListValue *>(BGE_PROXY_REF(self));
+	EXP_BaseListValue *list = static_cast<EXP_BaseListValue *>(EXP_PROXY_REF(self));
 	if (list == nullptr) {
 		return 0;
 	}
@@ -175,12 +178,12 @@ Py_ssize_t CBaseListValue::bufferlen(PyObject *self)
 	return (Py_ssize_t)list->GetCount();
 }
 
-PyObject *CBaseListValue::buffer_item(PyObject *self, Py_ssize_t index)
+PyObject *EXP_BaseListValue::buffer_item(PyObject *self, Py_ssize_t index)
 {
-	CBaseListValue *list = static_cast<CBaseListValue *>(BGE_PROXY_REF(self));
+	EXP_BaseListValue *list = static_cast<EXP_BaseListValue *>(EXP_PROXY_REF(self));
 
 	if (list == nullptr) {
-		PyErr_SetString(PyExc_SystemError, "val = CList[i], " BGE_PROXY_ERROR_MSG);
+		PyErr_SetString(PyExc_SystemError, "val = list[i], " EXP_PROXY_ERROR_MSG);
 		return nullptr;
 	}
 
@@ -191,11 +194,11 @@ PyObject *CBaseListValue::buffer_item(PyObject *self, Py_ssize_t index)
 	}
 
 	if (index < 0 || index >= count) {
-		PyErr_SetString(PyExc_IndexError, "CList[i]: Python ListIndex out of range in CValueList");
+		PyErr_SetString(PyExc_IndexError, "list[i]: Python ListIndex out of range in EXP_ValueList");
 		return nullptr;
 	}
 
-	CValue *cval = list->GetValue(index);
+	EXP_Value *cval = list->GetValue(index);
 
 	PyObject *pyobj = cval->ConvertValueToPython();
 	if (pyobj) {
@@ -207,7 +210,7 @@ PyObject *CBaseListValue::buffer_item(PyObject *self, Py_ssize_t index)
 }
 
 // Just slice it into a python list...
-PyObject *CBaseListValue::buffer_slice(CBaseListValue *list, Py_ssize_t start, Py_ssize_t stop)
+PyObject *EXP_BaseListValue::buffer_slice(EXP_BaseListValue *list, Py_ssize_t start, Py_ssize_t stop)
 {
 	PyObject *newlist = PyList_New(stop - start);
 	if (!newlist) {
@@ -225,16 +228,16 @@ PyObject *CBaseListValue::buffer_slice(CBaseListValue *list, Py_ssize_t start, P
 }
 
 
-PyObject *CBaseListValue::mapping_subscript(PyObject *self, PyObject *key)
+PyObject *EXP_BaseListValue::mapping_subscript(PyObject *self, PyObject *key)
 {
-	CBaseListValue *list = static_cast<CBaseListValue *>(BGE_PROXY_REF(self));
+	EXP_BaseListValue *list = static_cast<EXP_BaseListValue *>(EXP_PROXY_REF(self));
 	if (list == nullptr) {
-		PyErr_SetString(PyExc_SystemError, "value = CList[i], " BGE_PROXY_ERROR_MSG);
+		PyErr_SetString(PyExc_SystemError, "value = list[i], " EXP_PROXY_ERROR_MSG);
 		return nullptr;
 	}
 
 	if (PyUnicode_Check(key)) {
-		CValue *item = list->FindValue(_PyUnicode_AsString(key));
+		EXP_Value *item = list->FindValue(_PyUnicode_AsString(key));
 		if (item) {
 			PyObject *pyobj = item->ConvertValueToPython();
 			if (pyobj) {
@@ -263,34 +266,34 @@ PyObject *CBaseListValue::mapping_subscript(PyObject *self, PyObject *key)
 			return buffer_slice(list, start, stop);
 		}
 		else {
-			PyErr_SetString(PyExc_TypeError, "CList[slice]: slice steps not supported");
+			PyErr_SetString(PyExc_TypeError, "list[slice]: slice steps not supported");
 			return nullptr;
 		}
 	}
 
-	PyErr_Format(PyExc_KeyError, "CList[key]: '%R' key not in list", key);
+	PyErr_Format(PyExc_KeyError, "list[key]: '%R' key not in list", key);
 	return nullptr;
 }
 
 // clist + list, return a list that python owns.
-PyObject *CBaseListValue::buffer_concat(PyObject *self, PyObject *other)
+PyObject *EXP_BaseListValue::buffer_concat(PyObject *self, PyObject *other)
 {
-	CBaseListValue *listval = static_cast<CBaseListValue *>(BGE_PROXY_REF(self));
+	EXP_BaseListValue *listval = static_cast<EXP_BaseListValue *>(EXP_PROXY_REF(self));
 
 	if (listval == nullptr) {
-		PyErr_SetString(PyExc_SystemError, "CList+other, " BGE_PROXY_ERROR_MSG);
+		PyErr_SetString(PyExc_SystemError, "list+other, " EXP_PROXY_ERROR_MSG);
 		return nullptr;
 	}
 
 	Py_ssize_t numitems_orig = listval->GetCount();
 
-	/* For now, we support CBaseListValue concatenated with items
-	 * and CBaseListValue concatenated to Python Lists
-	 * and CBaseListValue concatenated with another CBaseListValue.
+	/* For now, we support EXP_BaseListValue concatenated with items
+	 * and EXP_BaseListValue concatenated to Python Lists
+	 * and EXP_BaseListValue concatenated with another EXP_BaseListValue.
 	 */
 
 	// Shallow copy, don't use listval->GetReplica(), it will screw up with KX_GameObjects.
-	CListValue<CValue> *listval_new = new CListValue<CValue>();
+	EXP_ListValue<EXP_Value> *listval_new = new EXP_ListValue<EXP_Value>();
 
 	if (PyList_Check(other)) {
 		Py_ssize_t numitems = PyList_GET_SIZE(other);
@@ -302,7 +305,7 @@ PyObject *CBaseListValue::buffer_concat(PyObject *self, PyObject *other)
 		}
 
 		for (Py_ssize_t i = 0; i < numitems; i++) {
-			CValue *listitemval = listval->ConvertPythonToValue(PyList_GET_ITEM(other, i), true, "cList + pyList: CBaseListValue, ");
+			EXP_Value *listitemval = listval->ConvertPythonToValue(PyList_GET_ITEM(other, i), true, "list + pyList: EXP_BaseListValue, ");
 
 			if (listitemval) {
 				listval_new->SetValue(i + numitems_orig, listitemval);
@@ -314,12 +317,12 @@ PyObject *CBaseListValue::buffer_concat(PyObject *self, PyObject *other)
 			}
 		}
 	}
-	else if (PyObject_TypeCheck(other, &CBaseListValue::Type)) {
+	else if (PyObject_TypeCheck(other, &EXP_BaseListValue::Type)) {
 		// Add items from otherlist to this list.
-		CBaseListValue *otherval = static_cast<CBaseListValue *>(BGE_PROXY_REF(other));
+		EXP_BaseListValue *otherval = static_cast<EXP_BaseListValue *>(EXP_PROXY_REF(other));
 		if (otherval == nullptr) {
 			listval_new->Release();
-			PyErr_SetString(PyExc_SystemError, "CList+other, " BGE_PROXY_ERROR_MSG);
+			PyErr_SetString(PyExc_SystemError, "list+other, " EXP_PROXY_ERROR_MSG);
 			return nullptr;
 		}
 
@@ -340,12 +343,12 @@ PyObject *CBaseListValue::buffer_concat(PyObject *self, PyObject *other)
 	return listval_new->NewProxy(true); // Python owns this list.
 }
 
-int CBaseListValue::buffer_contains(PyObject *self_v, PyObject *value)
+int EXP_BaseListValue::buffer_contains(PyObject *self_v, PyObject *value)
 {
-	CBaseListValue *self = static_cast<CBaseListValue *>(BGE_PROXY_REF(self_v));
+	EXP_BaseListValue *self = static_cast<EXP_BaseListValue *>(EXP_PROXY_REF(self_v));
 
 	if (self == nullptr) {
-		PyErr_SetString(PyExc_SystemError, "val in CList, " BGE_PROXY_ERROR_MSG);
+		PyErr_SetString(PyExc_SystemError, "val in list, " EXP_PROXY_ERROR_MSG);
 		return -1;
 	}
 
@@ -355,8 +358,8 @@ int CBaseListValue::buffer_contains(PyObject *self_v, PyObject *value)
 		}
 	}
 	// Not dict like at all but this worked before __contains__ was used.
-	else if (PyObject_TypeCheck(value, &CValue::Type)) {
-		CValue *item = static_cast<CValue *>(BGE_PROXY_REF(value));
+	else if (PyObject_TypeCheck(value, &EXP_Value::Type)) {
+		EXP_Value *item = static_cast<EXP_Value *>(EXP_PROXY_REF(value));
 		for (int i = 0; i < self->GetCount(); i++) {
 			if (self->GetValue(i) == item) {
 				return 1;
@@ -367,7 +370,7 @@ int CBaseListValue::buffer_contains(PyObject *self_v, PyObject *value)
 	return 0;
 }
 
-PySequenceMethods CBaseListValue::as_sequence = {
+PySequenceMethods EXP_BaseListValue::as_sequence = {
 	bufferlen, //(inquiry)buffer_length, /*sq_length*/
 	buffer_concat, /*sq_concat*/
 	nullptr, /*sq_repeat*/
@@ -382,16 +385,16 @@ PySequenceMethods CBaseListValue::as_sequence = {
 };
 
 // Is this one used ?
-PyMappingMethods CBaseListValue::instance_as_mapping = {
+PyMappingMethods EXP_BaseListValue::instance_as_mapping = {
 	bufferlen, /*mp_length*/
 	mapping_subscript, /*mp_subscript*/
 	nullptr /*mp_ass_subscript*/
 };
 
-PyTypeObject CBaseListValue::Type = {
+PyTypeObject EXP_BaseListValue::Type = {
 	PyVarObject_HEAD_INIT(nullptr, 0)
-	"CBaseListValue",           /*tp_name*/
-	sizeof(PyObjectPlus_Proxy), /*tp_basicsize*/
+	"EXP_ListValue",           /*tp_name*/
+	sizeof(EXP_PyObjectPlus_Proxy), /*tp_basicsize*/
 	0,              /*tp_itemsize*/
 	/* methods */
 	py_base_dealloc,            /*tp_dealloc*/
@@ -414,43 +417,43 @@ PyTypeObject CBaseListValue::Type = {
 	Methods,
 	0,
 	0,
-	&CValue::Type,
+	&EXP_Value::Type,
 	0, 0, 0, 0, 0, 0,
 	py_base_new
 };
 
-PyMethodDef CBaseListValue::Methods[] = {
+PyMethodDef EXP_BaseListValue::Methods[] = {
 	// List style access.
-	{"append", (PyCFunction)CBaseListValue::sPyappend, METH_O},
-	{"reverse", (PyCFunction)CBaseListValue::sPyreverse, METH_NOARGS},
-	{"index", (PyCFunction)CBaseListValue::sPyindex, METH_O},
-	{"count", (PyCFunction)CBaseListValue::sPycount, METH_O},
+	{"append", (PyCFunction)EXP_BaseListValue::sPyappend, METH_O},
+	{"reverse", (PyCFunction)EXP_BaseListValue::sPyreverse, METH_NOARGS},
+	{"index", (PyCFunction)EXP_BaseListValue::sPyindex, METH_O},
+	{"count", (PyCFunction)EXP_BaseListValue::sPycount, METH_O},
 
 	// Dict style access.
-	{"get", (PyCFunction)CBaseListValue::sPyget, METH_VARARGS},
-	{"filter", (PyCFunction)CBaseListValue::sPyfilter, METH_VARARGS},
+	{"get", (PyCFunction)EXP_BaseListValue::sPyget, METH_VARARGS},
+	{"filter", (PyCFunction)EXP_BaseListValue::sPyfilter, METH_VARARGS},
 
 	// Own cvalue funcs.
-	{"from_id", (PyCFunction)CBaseListValue::sPyfrom_id, METH_O},
+	{"from_id", (PyCFunction)EXP_BaseListValue::sPyfrom_id, METH_O},
 
 	{nullptr, nullptr} // Sentinel
 };
 
-PyAttributeDef CBaseListValue::Attributes[] = {
-	KX_PYATTRIBUTE_NULL // Sentinel
+PyAttributeDef EXP_BaseListValue::Attributes[] = {
+	EXP_PYATTRIBUTE_NULL // Sentinel
 };
 
-PyObject *CBaseListValue::Pyappend(PyObject *value)
+PyObject *EXP_BaseListValue::Pyappend(PyObject *value)
 {
-	CValue *objval = ConvertPythonToValue(value, true, "CList.append(i): CValueList, ");
+	EXP_Value *objval = ConvertPythonToValue(value, true, "list.append(i): EXP_ValueList, ");
 
 	if (!objval) {
 		// ConvertPythonToValue sets the error.
 		return nullptr;
 	}
 
-	if (!BGE_PROXY_PYOWNS(m_proxy)) {
-		PyErr_SetString(PyExc_TypeError, "CList.append(i): internal values can't be modified");
+	if (!EXP_PROXY_PYOWNS(m_proxy)) {
+		PyErr_SetString(PyExc_TypeError, "list.append(i): internal values can't be modified");
 		return nullptr;
 	}
 
@@ -459,29 +462,29 @@ PyObject *CBaseListValue::Pyappend(PyObject *value)
 	Py_RETURN_NONE;
 }
 
-PyObject *CBaseListValue::Pyreverse()
+PyObject *EXP_BaseListValue::Pyreverse()
 {
-	if (!BGE_PROXY_PYOWNS(m_proxy)) {
-		PyErr_SetString(PyExc_TypeError, "CList.reverse(): internal values can't be modified");
+	if (!EXP_PROXY_PYOWNS(m_proxy)) {
+		PyErr_SetString(PyExc_TypeError, "list.reverse(): internal values can't be modified");
 		return nullptr;
 	}
 
-	std::reverse(m_pValueArray.begin(), m_pValueArray.end());
+	std::reverse(m_valueArray.begin(), m_valueArray.end());
 	Py_RETURN_NONE;
 }
 
-PyObject *CBaseListValue::Pyindex(PyObject *value)
+PyObject *EXP_BaseListValue::Pyindex(PyObject *value)
 {
 	PyObject *result = nullptr;
 
-	CValue *checkobj = ConvertPythonToValue(value, true, "val = cList[i]: CValueList, ");
+	EXP_Value *checkobj = ConvertPythonToValue(value, true, "val = list[i]: EXP_ValueList, ");
 	if (checkobj == nullptr) {
 		// ConvertPythonToValue sets the error.
 		return nullptr;
 	}
 	int numelem = GetCount();
 	for (int i = 0; i < numelem; i++) {
-		CValue *elem = GetValue(i);
+		EXP_Value *elem = GetValue(i);
 		if (checkobj == elem || CheckEqual(checkobj, elem)) {
 			result = PyLong_FromLong(i);
 			break;
@@ -490,16 +493,16 @@ PyObject *CBaseListValue::Pyindex(PyObject *value)
 	checkobj->Release();
 
 	if (result == nullptr) {
-		PyErr_SetString(PyExc_ValueError, "CList.index(x): x not in CBaseListValue");
+		PyErr_SetString(PyExc_ValueError, "list.index(x): x not in EXP_BaseListValue");
 	}
 	return result;
 }
 
-PyObject *CBaseListValue::Pycount(PyObject *value)
+PyObject *EXP_BaseListValue::Pycount(PyObject *value)
 {
 	int numfound = 0;
 
-	CValue *checkobj = ConvertPythonToValue(value, false, ""); // Error ignored.
+	EXP_Value *checkobj = ConvertPythonToValue(value, false, ""); // Error ignored.
 
 	// in this case just return that there are no items in the list.
 	if (checkobj == nullptr) {
@@ -509,7 +512,7 @@ PyObject *CBaseListValue::Pycount(PyObject *value)
 
 	int numelem = GetCount();
 	for (int i = 0; i < numelem; i++) {
-		CValue *elem = GetValue(i);
+		EXP_Value *elem = GetValue(i);
 		if (checkobj == elem || CheckEqual(checkobj, elem)) {
 			numfound++;
 		}
@@ -520,7 +523,7 @@ PyObject *CBaseListValue::Pycount(PyObject *value)
 }
 
 // Matches python dict.get(key, [default]).
-PyObject *CBaseListValue::Pyget(PyObject *args)
+PyObject *EXP_BaseListValue::Pyget(PyObject *args)
 {
 	char *key;
 	PyObject *def = Py_None;
@@ -529,7 +532,7 @@ PyObject *CBaseListValue::Pyget(PyObject *args)
 		return nullptr;
 	}
 
-	CValue *item = FindValue(key);
+	EXP_Value *item = FindValue(key);
 	if (item) {
 		PyObject *pyobj = item->ConvertValueToPython();
 		if (pyobj) {
@@ -544,7 +547,7 @@ PyObject *CBaseListValue::Pyget(PyObject *args)
 	return def;
 }
 
-PyObject *CBaseListValue::Pyfilter(PyObject *args)
+PyObject *EXP_BaseListValue::Pyfilter(PyObject *args)
 {
 	const char *namestr = "";
 	const char *propstr = "";
@@ -554,7 +557,7 @@ PyObject *CBaseListValue::Pyfilter(PyObject *args)
 	}
 
 	if (strlen(namestr) == 0 && strlen(propstr) == 0) {
-		PyErr_SetString(PyExc_ValueError, "CList.filter(name, prop): empty expressions.");
+		PyErr_SetString(PyExc_ValueError, "list.filter(name, prop): empty expressions.");
 		return nullptr;
 	}
 
@@ -565,14 +568,14 @@ PyObject *CBaseListValue::Pyfilter(PyObject *args)
 		propreg = std::regex(propstr);
 	}
 	catch (const std::regex_error& error) {
-		PyErr_Format(PyExc_ValueError, "CList.filter(name, prop): invalid expression: %s.", error.what());
+		PyErr_Format(PyExc_ValueError, "list.filter(name, prop): invalid expression: %s.", error.what());
 		return nullptr;
 	}
 
-	CListValue<CValue> *result = new CListValue<CValue>();
+	EXP_ListValue<EXP_Value> *result = new EXP_ListValue<EXP_Value>();
 	result->SetReleaseOnDestruct(false);
 
-	for (CValue *item : m_pValueArray) {
+	for (EXP_Value *item : m_valueArray) {
 		if (strlen(namestr) == 0 || std::regex_match(item->GetName(), namereg)) {
 			if (strlen(propstr) == 0) {
 				result->Add(item);
@@ -592,7 +595,7 @@ PyObject *CBaseListValue::Pyfilter(PyObject *args)
 	return result->NewProxy(true);
 }
 
-PyObject *CBaseListValue::Pyfrom_id(PyObject *value)
+PyObject *EXP_BaseListValue::Pyfrom_id(PyObject *value)
 {
 	uintptr_t id = (uintptr_t)PyLong_AsVoidPtr(value);
 
@@ -602,12 +605,12 @@ PyObject *CBaseListValue::Pyfrom_id(PyObject *value)
 
 	int numelem = GetCount();
 	for (int i = 0; i < numelem; i++) {
-		if (reinterpret_cast<uintptr_t>(m_pValueArray[i]->m_proxy) == id) {
+		if (reinterpret_cast<uintptr_t>(m_valueArray[i]->m_proxy) == id) {
 			return GetValue(i)->GetProxy();
 		}
 	}
 
-	PyErr_SetString(PyExc_IndexError, "from_id(#): id not found in CValueList");
+	PyErr_SetString(PyExc_IndexError, "from_id(#): id not found in EXP_ValueList");
 	return nullptr;
 }
 

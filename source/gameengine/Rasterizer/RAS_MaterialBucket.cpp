@@ -30,14 +30,13 @@
  */
 
 #include "RAS_MaterialBucket.h"
-#include "RAS_IPolygonMaterial.h"
-#include "RAS_MaterialShader.h"
+#include "RAS_IMaterial.h"
 #include "RAS_Rasterizer.h"
-#include "RAS_MeshObject.h"
+#include "RAS_Mesh.h"
 #include "RAS_MeshUser.h"
 #include "RAS_Deformer.h"
 
-#include <algorithm>
+#include "CM_List.h"
 
 #ifdef _MSC_VER
 #  pragma warning (disable:4786)
@@ -47,24 +46,26 @@
 #  include <windows.h>
 #endif // WIN32
 
-RAS_MaterialBucket::RAS_MaterialBucket(RAS_IPolyMaterial *mat)
+RAS_MaterialBucket::RAS_MaterialBucket(RAS_IMaterial *mat)
 	:m_material(mat),
-	m_shader(nullptr)
+	m_downwardNode(this, &m_nodeData, &RAS_MaterialBucket::BindNode, &RAS_MaterialBucket::UnbindNode),
+	m_upwardNode(this, &m_nodeData, &RAS_MaterialBucket::BindNode, &RAS_MaterialBucket::UnbindNode)
 {
+	m_nodeData.m_material = m_material;
+	m_nodeData.m_drawingMode = m_material->GetDrawingMode();
+	m_nodeData.m_cullFace = m_material->IsCullFace();
+	m_nodeData.m_zsort = m_material->IsZSort();
+	m_nodeData.m_text = m_material->IsText();
+	m_nodeData.m_zoffset = m_material->GetZOffset();
 }
 
 RAS_MaterialBucket::~RAS_MaterialBucket()
 {
 }
 
-RAS_IPolyMaterial *RAS_MaterialBucket::GetPolyMaterial() const
+RAS_IMaterial *RAS_MaterialBucket::GetMaterial() const
 {
 	return m_material;
-}
-
-RAS_MaterialShader *RAS_MaterialBucket::GetShader() const
-{
-	return m_shader;
 }
 
 bool RAS_MaterialBucket::IsAlpha() const
@@ -84,20 +85,62 @@ bool RAS_MaterialBucket::IsWire() const
 
 bool RAS_MaterialBucket::UseInstancing() const
 {
-	return false; //(m_material->UseInstancing());
-}
-
-void RAS_MaterialBucket::UpdateShader()
-{
-	m_shader = m_material->GetShader();
+	return (m_material->UseInstancing());
 }
 
 void RAS_MaterialBucket::RemoveActiveMeshSlots()
 {
-	for (RAS_DisplayArrayBucketList::iterator it = m_displayArrayBucketList.begin(), end = m_displayArrayBucketList.end();
-		 it != end; ++it)
-	{
-		(*it)->RemoveActiveMeshSlots();
+	for (RAS_DisplayArrayBucket *arrayBucket : m_displayArrayBucketList) {
+		arrayBucket->RemoveActiveMeshSlots();
+	}
+}
+
+void RAS_MaterialBucket::ActivateMaterial(RAS_Rasterizer *rasty)
+{
+	m_material->Activate(rasty);
+}
+
+void RAS_MaterialBucket::DesactivateMaterial(RAS_Rasterizer *rasty)
+{
+	m_material->Desactivate(rasty);
+}
+
+void RAS_MaterialBucket::GenerateTree(RAS_ManagerDownwardNode& downwardRoot, RAS_ManagerUpwardNode& upwardRoot,
+                                      RAS_UpwardTreeLeafs& upwardLeafs, RAS_Rasterizer::DrawType drawingMode, bool sort)
+{
+	if (m_displayArrayBucketList.empty()) {
+		return;
+	}
+
+	const bool instancing = UseInstancing();
+	for (RAS_DisplayArrayBucket *displayArrayBucket : m_displayArrayBucketList) {
+		displayArrayBucket->GenerateTree(m_downwardNode, m_upwardNode, upwardLeafs, drawingMode, sort, instancing);
+	}
+
+	downwardRoot.AddChild(&m_downwardNode);
+
+	if (sort) {
+		m_upwardNode.SetParent(&upwardRoot);
+	}
+}
+
+void RAS_MaterialBucket::BindNode(const RAS_MaterialNodeTuple& tuple)
+{
+	RAS_ManagerNodeData *managerData = tuple.m_managerData;
+	RAS_Rasterizer *rasty = managerData->m_rasty;
+	rasty->SetCullFace(m_nodeData.m_cullFace);
+	rasty->SetPolygonOffset(managerData->m_drawingMode, -m_nodeData.m_zoffset, 0.0f);
+
+	if (!managerData->m_shaderOverride) {
+		ActivateMaterial(managerData->m_rasty);
+	}
+}
+
+void RAS_MaterialBucket::UnbindNode(const RAS_MaterialNodeTuple& tuple)
+{
+	RAS_ManagerNodeData *managerData = tuple.m_managerData;
+	if (!managerData->m_shaderOverride) {
+		DesactivateMaterial(managerData->m_rasty);
 	}
 }
 
@@ -108,18 +151,17 @@ void RAS_MaterialBucket::AddDisplayArrayBucket(RAS_DisplayArrayBucket *bucket)
 
 void RAS_MaterialBucket::RemoveDisplayArrayBucket(RAS_DisplayArrayBucket *bucket)
 {
-	if (m_displayArrayBucketList.size() == 0) {
-		return;
-	}
-	RAS_DisplayArrayBucketList::iterator it = std::find(m_displayArrayBucketList.begin(), m_displayArrayBucketList.end(), bucket);
-	if (it != m_displayArrayBucketList.end()) {
-		m_displayArrayBucketList.erase(it);
-	}
+	CM_ListRemoveIfFound(m_displayArrayBucketList, bucket);
+}
+
+RAS_DisplayArrayBucketList& RAS_MaterialBucket::GetDisplayArrayBucketList()
+{
+	return m_displayArrayBucketList;
 }
 
 void RAS_MaterialBucket::MoveDisplayArrayBucket(RAS_MeshMaterial *meshmat, RAS_MaterialBucket *bucket)
 {
-	for (RAS_DisplayArrayBucketList::iterator dit = m_displayArrayBucketList.begin(); dit != m_displayArrayBucketList.end();) {
+	for (RAS_DisplayArrayBucketList::iterator dit = m_displayArrayBucketList.begin(); dit != m_displayArrayBucketList.end(); ) {
 		// In case of deformers, multiple display array bucket can use the same mesh and material.
 		RAS_DisplayArrayBucket *displayArrayBucket = *dit;
 		if (displayArrayBucket->GetMeshMaterial() != meshmat) {

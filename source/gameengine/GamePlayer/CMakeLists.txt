@@ -45,8 +45,6 @@ set(INC
 	../../blender/blenlib
 	../../blender/blenloader
 	../../blender/blentranslation
-	../../blender/depsgraph
-	../../blender/draw/engines/eevee/
 	../../blender/gpu
 	../../blender/imbuf
 	../../blender/makesdna
@@ -58,7 +56,8 @@ set(INC
 )
 
 set(INC_SYS
-	../../../intern/moto/include
+	../../../intern/debugbreak
+	../../../intern/mathfu
 	${PYTHON_INCLUDE_DIRS}
 	${BOOST_INCLUDE_DIR}
 )

@@ -31,7 +31,7 @@
  */
 
 #ifdef _MSC_VER
-   /* don't show stl-warnings */
+/* don't show stl-warnings */
 #  pragma warning (disable:4786)
 #endif
 
@@ -47,6 +47,7 @@
 extern "C" {
 #  include "DNA_scene_types.h"
 
+#  include "BKE_global.h"
 #  include "BKE_report.h"
 #  include "BKE_main.h"
 #  include "BKE_context.h"
@@ -55,20 +56,19 @@ extern "C" {
 #  include "BLI_blenlib.h"
 #  include "BLO_readfile.h"
 
-	void StartKetsjiShell(struct bContext *C, struct ARegion *ar, rcti *cam_frame, int always_use_expand_framing);
-}
+#  include "WM_api.h"
+#  include "wm_cursors.h"
 
-#ifdef WITH_AUDASPACE
-#  include <AUD_Device.h>
-#endif
+void StartKetsjiShell(struct bContext *C, struct ARegion *ar, rcti *cam_frame, int always_use_expand_framing);
+}
 
 static BlendFileData *load_game_data(const char *filename)
 {
 	ReportList reports;
 	BlendFileData *bfd;
-	
+
 	BKE_reports_init(&reports, RPT_STORE);
-	bfd= BLO_read_from_file(filename, BLO_READ_SKIP_USERDEF, &reports);
+	bfd = BLO_read_from_file(filename, BLO_READ_SKIP_USERDEF, &reports);
 
 	if (!bfd) {
 		CM_Error("loading " << filename << " failed: ");
@@ -85,17 +85,18 @@ extern "C" void StartKetsjiShell(struct bContext *C, struct ARegion *ar, rcti *c
 {
 	/* context values */
 	Scene *startscene = CTX_data_scene(C);
-	Main* maggie1 = CTX_data_main(C);
+	Main *maggie1 = CTX_data_main(C);
 
-	KX_ExitRequest exitrequested = KX_ExitRequest::NO_REQUEST;
-	Main* blenderdata = maggie1;
+	KX_ExitInfo exitInfo;
+	Main *blenderdata = maggie1;
 
-	char* startscenename = startscene->id.name + 2;
-	char pathname[FILE_MAXDIR+FILE_MAXFILE];
-	std::string exitstring = "";
+	char *startscenename = startscene->id.name + 2;
+	char pathname[FILE_MAXDIR + FILE_MAXFILE];
+	char prevPathName[FILE_MAXDIR + FILE_MAXFILE];
 	BlendFileData *bfd = nullptr;
 
 	BLI_strncpy(pathname, blenderdata->name, sizeof(pathname));
+	BLI_strncpy(prevPathName, G.main->name, sizeof(prevPathName));
 
 	KX_SetOrigPath(std::string(blenderdata->name));
 
@@ -112,21 +113,20 @@ extern "C" void StartKetsjiShell(struct bContext *C, struct ARegion *ar, rcti *c
 	GlobalSettings gs;
 	gs.glslflag = startscene->gm.flag;
 
-	do
-	{
-		// if we got an exitcode 3 (KX_ExitRequest::START_OTHER_GAME) load a different file
-		if (exitrequested == KX_ExitRequest::START_OTHER_GAME || exitrequested == KX_ExitRequest::RESTART_GAME) {
-			exitrequested = KX_ExitRequest::NO_REQUEST;
+	do {
+		// if we got an exitcode 3 (KX_ExitInfo::START_OTHER_GAME) load a different file
+		if (ELEM(exitInfo.m_code, KX_ExitInfo::START_OTHER_GAME, KX_ExitInfo::RESTART_GAME)) {
+			exitInfo.m_code = KX_ExitInfo::NO_REQUEST;
 			if (bfd) {
 				BLO_blendfiledata_free(bfd);
 			}
-			
+
 			char basedpath[FILE_MAX];
 			// base the actuator filename with respect
 			// to the original file working directory
 
-			if (!exitstring.empty()) {
-				BLI_strncpy(basedpath, exitstring.c_str(), sizeof(basedpath));
+			if (!exitInfo.m_fileName.empty()) {
+				BLI_strncpy(basedpath, exitInfo.m_fileName.c_str(), sizeof(basedpath));
 			}
 
 			// load relative to the last loaded file, this used to be relative
@@ -135,17 +135,17 @@ extern "C" void StartKetsjiShell(struct bContext *C, struct ARegion *ar, rcti *c
 			// that happened to be loaded first
 			BLI_path_abs(basedpath, pathname);
 			bfd = load_game_data(basedpath);
-			
+
 			// if it wasn't loaded, try it forced relative
 			if (!bfd) {
 				// just add "//" in front of it
 				char temppath[FILE_MAX] = "//";
 				BLI_strncpy(temppath + 2, basedpath, FILE_MAX - 2);
-				
+
 				BLI_path_abs(temppath, pathname);
 				bfd = load_game_data(temppath);
 			}
-			
+
 			// if we got a loaded blendfile, proceed
 			if (bfd) {
 				blenderdata = bfd->main;
@@ -153,11 +153,13 @@ extern "C" void StartKetsjiShell(struct bContext *C, struct ARegion *ar, rcti *c
 
 				if (blenderdata) {
 					BLI_strncpy(pathname, blenderdata->name, sizeof(pathname));
+					// Change G.main path to ensure loading of data using relative paths.
+					BLI_strncpy(G.main->name, pathname, sizeof(G.main->name));
 				}
 			}
 			// else forget it, we can't find it
 			else {
-				exitrequested = KX_ExitRequest::QUIT_GAME;
+				exitInfo.m_code = KX_ExitInfo::QUIT_GAME;
 			}
 		}
 
@@ -218,17 +220,19 @@ extern "C" void StartKetsjiShell(struct bContext *C, struct ARegion *ar, rcti *c
 		launcher.InitEngine();
 
 		CM_Message(std::endl << "Blender Game Engine Started");
-		launcher.EngineMainLoop();
+		exitInfo = launcher.EngineMainLoop();
 		CM_Message("Blender Game Engine Finished");
 
-		exitrequested = launcher.GetExitRequested();
-		exitstring = launcher.GetExitString();
 		gs = *launcher.GetGlobalSettings();
 
 		launcher.ExitEngine();
-	
-	} while (exitrequested == KX_ExitRequest::RESTART_GAME || exitrequested == KX_ExitRequest::START_OTHER_GAME);
-	
+
+	} while (ELEM(exitInfo.m_code, KX_ExitInfo::RESTART_GAME, KX_ExitInfo::START_OTHER_GAME));
+
+	// Restore cursor.
+	wmWindow *win = CTX_wm_window(C);
+	WM_cursor_set(win, CURSOR_STD);
+
 	if (bfd) {
 		BLO_blendfiledata_free(bfd);
 	}
@@ -242,4 +246,6 @@ extern "C" void StartKetsjiShell(struct bContext *C, struct ARegion *ar, rcti *c
 	PyGILState_Release(gilstate);
 #endif
 
+	// Restore G.main path.
+	BLI_strncpy(G.main->name, prevPathName, sizeof(G.main->name));
 }

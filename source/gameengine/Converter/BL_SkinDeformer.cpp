@@ -39,14 +39,12 @@
 
 #include "BL_SkinDeformer.h"
 #include <string>
-#include "RAS_IPolygonMaterial.h"
+#include "RAS_IMaterial.h"
 #include "RAS_DisplayArray.h"
-#include "RAS_MeshObject.h"
+#include "RAS_Mesh.h"
 #include "RAS_MeshUser.h"
 #include "RAS_BoundingBox.h"
 
-//#include "BL_ArmatureController.h"
-#include "BL_DeformableGameObject.h"
 #include "DNA_armature_types.h"
 #include "DNA_action_types.h"
 #include "DNA_mesh_types.h"
@@ -55,7 +53,6 @@
 #include "BLI_utildefines.h"
 #include "BKE_armature.h"
 #include "BKE_action.h"
-#include "MT_Vector3.h"
 
 extern "C" {
 	#include "BKE_lattice.h"
@@ -65,9 +62,6 @@ extern "C" {
 
 #include "BLI_blenlib.h"
 #include "BLI_math.h"
-
-#define __NLA_DEFNORMALS
-//#undef __NLA_DEFNORMALS
 
 static short get_deformflags(Object *bmeshobj)
 {
@@ -84,38 +78,15 @@ static short get_deformflags(Object *bmeshobj)
 	return flags;
 }
 
-BL_SkinDeformer::BL_SkinDeformer(BL_DeformableGameObject *gameobj,
-								 Object *bmeshobj,
-								 RAS_MeshObject *mesh,
-								 BL_ArmatureObject *arma)
-	:BL_MeshDeformer(gameobj, bmeshobj, mesh),
-	m_armobj(arma),
-	m_lastArmaUpdate(-1),
-	m_releaseobject(false),
-	m_poseApplied(false),
-	m_recalcNormal(true),
-	m_copyNormals(false),
-	m_dfnrToPC(nullptr)
-{
-	copy_m4_m4(m_obmat, bmeshobj->obmat);
-	m_deformflags = get_deformflags(bmeshobj);
-}
-
-BL_SkinDeformer::BL_SkinDeformer(
-	BL_DeformableGameObject *gameobj,
-	Object *bmeshobj_old, // Blender object that owns the new mesh
-	Object *bmeshobj_new, // Blender object that owns the original mesh
-	RAS_MeshObject *mesh,
-	bool release_object,
-	bool recalc_normal,
-	BL_ArmatureObject *arma)
+BL_SkinDeformer::BL_SkinDeformer(KX_GameObject *gameobj,
+                                 Object *bmeshobj_old, // Blender object that owns the new mesh
+                                 Object *bmeshobj_new, // Blender object that owns the original mesh
+                                 RAS_Mesh *mesh,
+                                 BL_ArmatureObject *arma)
 	:BL_MeshDeformer(gameobj, bmeshobj_old, mesh),
 	m_armobj(arma),
 	m_lastArmaUpdate(-1),
-	m_releaseobject(release_object),
-	m_recalcNormal(recalc_normal),
-	m_copyNormals(false),
-	m_dfnrToPC(nullptr)
+	m_copyNormals(false)
 {
 	// this is needed to ensure correct deformation of mesh:
 	// the deformation is done with Blender's armature_deform_verts() function
@@ -128,68 +99,24 @@ BL_SkinDeformer::BL_SkinDeformer(
 
 BL_SkinDeformer::~BL_SkinDeformer()
 {
-	if (m_releaseobject && m_armobj)
-		m_armobj->Release();
-	if (m_dfnrToPC)
-		delete [] m_dfnrToPC;
 }
 
-void BL_SkinDeformer::Relink(std::map<SCA_IObject *, SCA_IObject *>& map)
+void BL_SkinDeformer::Apply(RAS_DisplayArray *array)
 {
-	if (m_armobj) {
-		m_armobj = static_cast<BL_ArmatureObject *>(map[m_armobj]);
+	for (DisplayArraySlot& slot : m_slots) {
+		if (slot.m_displayArray == array) {
+			const short modifiedFlag = slot.m_arrayUpdateClient.GetInvalidAndClear();
+			if (modifiedFlag != RAS_DisplayArray::NONE_MODIFIED) {
+				/// Update vertex data from the original mesh.
+				array->UpdateFrom(slot.m_origDisplayArray, modifiedFlag);
+			}
+
+			break;
+		}
 	}
-
-	BL_MeshDeformer::Relink(map);
 }
 
-bool BL_SkinDeformer::Apply(RAS_MeshMaterial *meshmat, RAS_IDisplayArray *array)
-{
-	// if we don't use a vertex array we does nothing.
-	if (!UseVertexArray() || !meshmat || !array) {
-		return false;
-	}
-
-	RAS_IDisplayArray *origarray = meshmat->GetDisplayArray();
-
-	const short modifiedFlag = origarray->GetModifiedFlag();
-	// No modifications ?
-	if (modifiedFlag == RAS_IDisplayArray::NONE_MODIFIED) {
-		return false;
-	}
-
-	/// Update vertex data from the original mesh.
-	array->UpdateFrom(origarray, modifiedFlag &
-					 (RAS_IDisplayArray::TANGENT_MODIFIED |
-					  RAS_IDisplayArray::UVS_MODIFIED |
-					  RAS_IDisplayArray::COLORS_MODIFIED));
-
-	// We do everything in UpdateInternal() now so we can thread it.
-	// All that is left is telling the rasterizer if we've changed the mesh
-	bool retval = !m_poseApplied;
-	m_poseApplied = true;
-	return retval;
-}
-
-RAS_Deformer *BL_SkinDeformer::GetReplica()
-{
-	BL_SkinDeformer *result;
-
-	result = new BL_SkinDeformer(*this);
-	/* there is m_armobj that must be fixed but we cannot do it now, it will be done in Relink */
-	result->ProcessReplica();
-	return result;
-}
-
-void BL_SkinDeformer::ProcessReplica()
-{
-	BL_MeshDeformer::ProcessReplica();
-	m_lastArmaUpdate = -1.0;
-	m_releaseobject = false;
-	m_dfnrToPC = nullptr;
-}
-
-void BL_SkinDeformer::BlenderDeformVerts()
+void BL_SkinDeformer::BlenderDeformVerts(bool recalcNormal)
 {
 	float obmat[4][4];  // the original object matrix
 	Object *par_arma = m_armobj->GetArmatureObject();
@@ -199,41 +126,38 @@ void BL_SkinDeformer::BlenderDeformVerts()
 	// set reference matrix
 	copy_m4_m4(m_objMesh->obmat, m_obmat);
 
-	armature_deform_verts(par_arma, m_objMesh, nullptr, m_transverts, nullptr, m_bmesh->totvert, m_deformflags, nullptr, nullptr, nullptr);
+	armature_deform_verts(par_arma, m_objMesh, nullptr, (float(*)[3])m_transverts.data(), nullptr, m_bmesh->totvert, m_deformflags, nullptr, nullptr, nullptr);
 
 	// restore matrix
 	copy_m4_m4(m_objMesh->obmat, obmat);
 
-#ifdef __NLA_DEFNORMALS
-	if (m_recalcNormal)
+	if (recalcNormal) {
 		RecalcNormals();
-#endif
+	}
 }
 
-void BL_SkinDeformer::BGEDeformVerts()
+void BL_SkinDeformer::BGEDeformVerts(bool recalcNormal)
 {
 	Object *par_arma = m_armobj->GetArmatureObject();
 	MDeformVert *dverts = m_bmesh->dvert;
-	bDeformGroup *dg;
-	int defbase_tot;
 	Eigen::Matrix4f pre_mat, post_mat, chan_mat, norm_chan_mat;
 
-	if (!dverts)
+	if (!dverts) {
 		return;
+	}
 
-	defbase_tot = BLI_listbase_count(&m_objMesh->defbase);
+	const unsigned short defbase_tot = BLI_listbase_count(&m_objMesh->defbase);
 
-	if (m_dfnrToPC == nullptr) {
-		m_dfnrToPC = new bPoseChannel *[defbase_tot];
+	if (m_dfnrToPC.empty()) {
+		m_dfnrToPC.resize(defbase_tot);
 		int i;
-		for (i = 0, dg = (bDeformGroup *)m_objMesh->defbase.first;
-		     dg;
-		     ++i, dg = dg->next)
-		{
+		bDeformGroup *dg;
+		for (i = 0, dg = (bDeformGroup *)m_objMesh->defbase.first; dg; ++i, dg = dg->next) {
 			m_dfnrToPC[i] = BKE_pose_channel_find_name(par_arma->pose, dg->name);
 
-			if (m_dfnrToPC[i] && m_dfnrToPC[i]->bone->flag & BONE_NO_DEFORM)
+			if (m_dfnrToPC[i] && m_dfnrToPC[i]->bone->flag & BONE_NO_DEFORM) {
 				m_dfnrToPC[i] = nullptr;
+			}
 		}
 	}
 
@@ -244,18 +168,17 @@ void BL_SkinDeformer::BGEDeformVerts()
 	MDeformWeight *dw;
 
 	for (int i = 0; i < m_bmesh->totvert; ++i, dv++) {
+		if (!dv->totweight) {
+			continue;
+		}
+
 		float contrib = 0.0f, weight, max_weight = -1.0f;
 		bPoseChannel *pchan = nullptr;
-		Eigen::Vector3f normorg(m_bmesh->mvert[i].no[0], m_bmesh->mvert[i].no[1], m_bmesh->mvert[i].no[2]);
-		Eigen::Map<Eigen::Vector3f> norm = Eigen::Vector3f::Map(m_transnors[i]);
 		Eigen::Vector4f vec(0.0f, 0.0f, 0.0f, 1.0f);
-		Eigen::Vector4f co(m_transverts[i][0],
-		                   m_transverts[i][1],
-		                   m_transverts[i][2],
+		Eigen::Vector4f co(m_transverts[i].x,
+		                   m_transverts[i].y,
+		                   m_transverts[i].z,
 		                   1.0f);
-
-		if (!dv->totweight)
-			continue;
 
 		co = pre_mat * co;
 
@@ -274,8 +197,7 @@ void BL_SkinDeformer::BGEDeformVerts()
 					vec.noalias() += (chan_mat * co - co) * weight;
 
 					// Save the most influential channel so we can use it to update the vertex normal
-					if (weight > max_weight)
-					{
+					if (weight > max_weight) {
 						max_weight = weight;
 						norm_chan_mat = chan_mat;
 					}
@@ -285,80 +207,70 @@ void BL_SkinDeformer::BGEDeformVerts()
 			}
 		}
 
-		// Update Vertex Normal
-		norm = norm_chan_mat.topLeftCorner<3, 3>() * normorg;
+		if (recalcNormal) {
+			const Eigen::Vector3f normorg(m_bmesh->mvert[i].no[0], m_bmesh->mvert[i].no[1], m_bmesh->mvert[i].no[2]);
+			Eigen::Map<Eigen::Vector3f> norm = Eigen::Vector3f::Map(m_transnors[i].data);
+			// Update Vertex Normal
+			norm = norm_chan_mat.topLeftCorner<3, 3>() * normorg;
+		}
 
 		co.noalias() += vec / contrib;
 		co[3] = 1.0f; // Make sure we have a 1 for the w component!
 
 		co = post_mat * co;
 
-		m_transverts[i][0] = co[0];
-		m_transverts[i][1] = co[1];
-		m_transverts[i][2] = co[2];
+		m_transverts[i] = mt::vec3(co[0], co[1], co[2]);
 	}
 	m_copyNormals = true;
 }
 
 void BL_SkinDeformer::UpdateTransverts()
 {
-	// if we don't use a vertex array we does nothing.
-	if (!UseVertexArray()) {
+	if (m_transverts.empty()) {
 		return;
 	}
 
-	bool first = true;
-	if (m_transverts) {
-		// AABB Box : min/max.
-		MT_Vector3 aabbMin;
-		MT_Vector3 aabbMax;
+	// AABB Box : min/max.
+	mt::vec3 aabbMin(FLT_MAX);
+	mt::vec3 aabbMax(-FLT_MAX);
 
-		// the vertex cache is unique to this deformer, no need to update it
-		// if it wasn't updated! We must update all the materials at once
-		// because we will not get here again for the other material
-		for (RAS_IDisplayArray *array: m_displayArrayList) {
-			// for each vertex
-			// copy the untransformed data from the original mvert
-			for (unsigned int i = 0, size = array->GetVertexCount(); i < size; ++i) {
-				RAS_ITexVert *v = array->GetVertex(i);
-				const RAS_TexVertInfo& vinfo = array->GetVertexInfo(i);
-				v->SetXYZ(m_transverts[vinfo.getOrigIndex()]);
-				if (m_copyNormals)
-					v->SetNormal(MT_Vector3(m_transnors[vinfo.getOrigIndex()]));
+	const bool autoUpdate = m_gameobj->GetAutoUpdateBounds();
 
-				MT_Vector3 vertpos = v->xyz();
+	// the vertex cache is unique to this deformer, no need to update it
+	// if it wasn't updated! We must update all the materials at once
+	// because we will not get here again for the other material
+	for (const DisplayArraySlot& slot : m_slots) {
+		RAS_DisplayArray *array = slot.m_displayArray;
+		// for each vertex
+		// copy the untransformed data from the original mvert
+		for (unsigned int i = 0, size = array->GetVertexCount(); i < size; ++i) {
+			const RAS_VertexInfo& vinfo = array->GetVertexInfo(i);
+			const mt::vec3 pos = mt::vec3(m_transverts[vinfo.GetOrigIndex()]);
+			array->SetPosition(i, pos);
 
-				if (!m_gameobj->GetAutoUpdateBounds()) {
-					continue;
-				}
-
-				// For the first vertex of the mesh, only initialize AABB.
-				if (first) {
-					aabbMin = aabbMax = vertpos;
-					first = false;
-				}
-				else {
-					aabbMin.x() = std::min(aabbMin.x(), vertpos.x());
-					aabbMin.y() = std::min(aabbMin.y(), vertpos.y());
-					aabbMin.z() = std::min(aabbMin.z(), vertpos.z());
-					aabbMax.x() = std::max(aabbMax.x(), vertpos.x());
-					aabbMax.y() = std::max(aabbMax.y(), vertpos.y());
-					aabbMax.z() = std::max(aabbMax.z(), vertpos.z());
-				}
+			if (autoUpdate) {
+				aabbMin = mt::vec3::Min(aabbMin, pos);
+				aabbMax = mt::vec3::Max(aabbMax, pos);
 			}
-
-			array->SetModifiedFlag(RAS_IDisplayArray::POSITION_MODIFIED | RAS_IDisplayArray::NORMAL_MODIFIED);
+		}
+		if (m_copyNormals) {
+			for (unsigned int i = 0, size = array->GetVertexCount(); i < size; ++i) {
+				const RAS_VertexInfo& vinfo = array->GetVertexInfo(i);
+				array->SetNormal(i, m_transnors[vinfo.GetOrigIndex()]);
+			}
 		}
 
-		m_boundingBox->SetAabb(aabbMin, aabbMax);
+		array->NotifyUpdate(RAS_DisplayArray::POSITION_MODIFIED | RAS_DisplayArray::NORMAL_MODIFIED);
+	}
 
+	m_boundingBox->SetAabb(aabbMin, aabbMax);
 
-		if (m_copyNormals)
-			m_copyNormals = false;
+	if (m_copyNormals) {
+		m_copyNormals = false;
 	}
 }
 
-bool BL_SkinDeformer::UpdateInternal(bool shape_applied)
+bool BL_SkinDeformer::UpdateInternal(bool shape_applied, bool recalcNormal)
 {
 	/* See if the armature has been updated for this frame */
 	if (PoseUpdated()) {
@@ -369,21 +281,20 @@ bool BL_SkinDeformer::UpdateInternal(bool shape_applied)
 
 		m_armobj->ApplyPose();
 
-		if (m_armobj->GetVertDeformType() == ARM_VDEF_BGE_CPU)
-			BGEDeformVerts();
-		else
-			BlenderDeformVerts();
+		if (m_armobj->GetVertDeformType() == ARM_VDEF_BGE_CPU) {
+			BGEDeformVerts(recalcNormal);
+		}
+		else {
+			BlenderDeformVerts(recalcNormal);
+		}
 
 		/* Update the current frame */
 		m_lastArmaUpdate = m_armobj->GetLastFrame();
 
-		m_armobj->RestorePose();
 		/* dynamic vertex, cannot use display list */
 		m_bDynamic = true;
 
 		UpdateTransverts();
-
-		m_poseApplied = false;
 
 		/* indicate that the m_transverts and normals are up to date */
 		return true;
@@ -394,12 +305,5 @@ bool BL_SkinDeformer::UpdateInternal(bool shape_applied)
 
 bool BL_SkinDeformer::Update(void)
 {
-	return UpdateInternal(false);
-}
-
-/* XXX note: I propose to drop this function */
-void BL_SkinDeformer::SetArmature(BL_ArmatureObject *armobj)
-{
-	// only used to set the object now
-	m_armobj = armobj;
+	return UpdateInternal(false, true);
 }

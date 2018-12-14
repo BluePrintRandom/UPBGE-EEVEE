@@ -33,23 +33,25 @@
 #include "SG_Familly.h"
 #include "SG_Controller.h"
 
-#include <algorithm>
+#include "CM_List.h"
+
+#include "BLI_utildefines.h"
 
 static CM_ThreadMutex scheduleMutex;
 static CM_ThreadMutex transformMutex;
 
 SG_Node::SG_Node(void *clientobj, void *clientinfo, SG_Callbacks& callbacks)
 	:SG_QList(),
-	m_SGclientObject(clientobj),
-	m_SGclientInfo(clientinfo),
+	m_clientObject(clientobj),
+	m_clientInfo(clientinfo),
 	m_callbacks(callbacks),
-	m_SGparent(nullptr),
-	m_localPosition(0.0f, 0.0f, 0.0f),
-	m_localRotation(1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f),
-	m_localScaling(1.0f, 1.0f, 1.0f),
-	m_worldPosition(0.0f, 0.0f, 0.0f),
-	m_worldRotation(1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f),
-	m_worldScaling(1.0f, 1.0f, 1.0f),
+	m_parent(nullptr),
+	m_localPosition(mt::zero3),
+	m_localRotation(mt::mat3::Identity()),
+	m_localScaling(mt::one3),
+	m_worldPosition(mt::zero3),
+	m_worldRotation(mt::mat3::Identity()),
+	m_worldScaling(mt::one3),
 	m_parent_relation(nullptr),
 	m_familly(new SG_Familly()),
 	m_modified(true),
@@ -59,11 +61,11 @@ SG_Node::SG_Node(void *clientobj, void *clientinfo, SG_Callbacks& callbacks)
 
 SG_Node::SG_Node(const SG_Node & other)
 	:SG_QList(),
-	m_SGclientObject(other.m_SGclientObject),
-	m_SGclientInfo(other.m_SGclientInfo),
+	m_clientObject(other.m_clientObject),
+	m_clientInfo(other.m_clientInfo),
 	m_callbacks(other.m_callbacks),
 	m_children(other.m_children),
-	m_SGparent(other.m_SGparent),
+	m_parent(other.m_parent),
 	m_localPosition(other.m_localPosition),
 	m_localRotation(other.m_localRotation),
 	m_localScaling(other.m_localScaling),
@@ -78,14 +80,9 @@ SG_Node::SG_Node(const SG_Node & other)
 
 SG_Node::~SG_Node()
 {
-	SGControllerList::iterator contit;
-
-	for (contit = m_SGcontrollers.begin(); contit != m_SGcontrollers.end(); ++contit) {
-		delete (*contit);
-	}
 }
 
-SG_Node *SG_Node::GetSGReplica()
+SG_Node *SG_Node::GetReplica()
 {
 	SG_Node *replica = new SG_Node(*this);
 	if (replica == nullptr) {
@@ -107,14 +104,14 @@ void SG_Node::ProcessSGReplica(SG_Node **replica)
 	}
 
 	// clear the replica node of it's parent.
-	(*replica)->m_SGparent = nullptr;
+	(*replica)->m_parent = nullptr;
 
-	if (m_children.size() > 0) {
+	if (!m_children.empty()) {
 		// if this node has children, the replica has too, so clear and clone children
 		(*replica)->ClearSGChildren();
 
 		for (SG_Node *childnode : m_children) {
-			SG_Node *replicanode = childnode->GetSGReplica();
+			SG_Node *replicanode = childnode->GetReplica();
 			if (replicanode) {
 				(*replica)->AddChild(replicanode);
 			}
@@ -124,9 +121,8 @@ void SG_Node::ProcessSGReplica(SG_Node **replica)
 	// not worth to keep, they will just take up CPU
 	// This can happen in partial replication of hierarchy
 	// during group duplication.
-	if ((*replica)->m_children.size() == 0 &&
-	    (*replica)->GetSGClientObject() == nullptr)
-	{
+	if ((*replica)->m_children.empty() &&
+	    (*replica)->GetClientObject() == nullptr) {
 		delete (*replica);
 		*replica = nullptr;
 	}
@@ -152,16 +148,16 @@ void SG_Node::Destruct()
 
 const SG_Node *SG_Node::GetRootSGParent() const
 {
-	return (m_SGparent ? m_SGparent->GetRootSGParent() : this);
+	return (m_parent ? m_parent->GetRootSGParent() : this);
 }
 
 bool SG_Node::IsAncessor(const SG_Node *child) const
 {
-	return (!child->m_SGparent) ? false :
-	       (child->m_SGparent == this) ? true : IsAncessor(child->m_SGparent);
+	return (!child->m_parent) ? false :
+	       (child->m_parent == this) ? true : IsAncessor(child->m_parent);
 }
 
-NodeList& SG_Node::GetSGChildren()
+const NodeList& SG_Node::GetChildren() const
 {
 	return m_children;
 }
@@ -171,14 +167,14 @@ void SG_Node::ClearSGChildren()
 	m_children.clear();
 }
 
-SG_Node *SG_Node::GetSGParent() const
+SG_Node *SG_Node::GetParent() const
 {
-	return m_SGparent;
+	return m_parent;
 }
 
-void SG_Node::SetSGParent(SG_Node *parent)
+void SG_Node::SetParent(SG_Node *parent)
 {
-	m_SGparent = parent;
+	m_parent = parent;
 	if (parent) {
 		SetFamilly(parent->GetFamilly());
 	}
@@ -186,9 +182,9 @@ void SG_Node::SetSGParent(SG_Node *parent)
 
 void SG_Node::DisconnectFromParent()
 {
-	if (m_SGparent) {
-		m_SGparent->RemoveChild(this);
-		m_SGparent = nullptr;
+	if (m_parent) {
+		m_parent->RemoveChild(this);
+		m_parent = nullptr;
 		SetFamilly(std::make_shared<SG_Familly>());
 	}
 }
@@ -212,46 +208,44 @@ bool SG_Node::IsSlowParent()
 void SG_Node::AddChild(SG_Node *child)
 {
 	m_children.push_back(child);
-	child->SetSGParent(this);
+	child->SetParent(this);
 }
 
 void SG_Node::RemoveChild(SG_Node *child)
 {
-	m_children.erase(std::find(m_children.begin(), m_children.end(), child));
+	CM_ListRemoveIfFound(m_children, child);
 }
 
-void SG_Node::UpdateWorldData(double time, bool parentUpdated)
+void SG_Node::UpdateWorldData(bool parentUpdated)
 {
-	if (UpdateSpatialData(GetSGParent(), time, parentUpdated)) {
-		// to update the
-		ActivateUpdateTransformCallback();
-	}
+	UpdateSpatialData(m_parent, parentUpdated);
+
+	ActivateUpdateTransformCallback();
 
 	// The node is updated, remove it from the update list
 	Delink();
 
 	// update children's worlddata
 	for (SG_Node *childnode : m_children) {
-		childnode->UpdateWorldData(time, parentUpdated);
+		childnode->UpdateWorldData(parentUpdated);
 	}
 }
 
-void SG_Node::UpdateWorldDataThread(double time, bool parentUpdated)
+void SG_Node::UpdateWorldDataThread(bool parentUpdated)
 {
 	CM_ThreadSpinLock& famillyMutex = m_familly->GetMutex();
 	famillyMutex.Lock();
 
-	UpdateWorldDataThreadSchedule(time, parentUpdated);
+	UpdateWorldDataThreadSchedule(parentUpdated);
 
 	famillyMutex.Unlock();
 }
 
-void SG_Node::UpdateWorldDataThreadSchedule(double time, bool parentUpdated)
+void SG_Node::UpdateWorldDataThreadSchedule(bool parentUpdated)
 {
-	if (UpdateSpatialData(GetSGParent(), time, parentUpdated)) {
-		// to update the
-		ActivateUpdateTransformCallback();
-	}
+	UpdateSpatialData(m_parent, parentUpdated);
+
+	ActivateUpdateTransformCallback();
 
 	scheduleMutex.Lock();
 	// The node is updated, remove it from the update list
@@ -260,37 +254,8 @@ void SG_Node::UpdateWorldDataThreadSchedule(double time, bool parentUpdated)
 
 	// update children's worlddata
 	for (SG_Node *childnode : m_children) {
-		childnode->UpdateWorldDataThreadSchedule(time, parentUpdated);
+		childnode->UpdateWorldDataThreadSchedule(parentUpdated);
 	}
-}
-
-void SG_Node::SetSimulatedTime(double time, bool recurse)
-{
-	// update the controllers of this node.
-	SetControllerTime(time);
-
-	// update children's simulate time.
-	if (recurse) {
-		for (SG_Node *childnode : m_children) {
-			childnode->SetSimulatedTime(time, recurse);
-		}
-	}
-}
-
-void SG_Node::SetSimulatedTimeThread(double time, bool recurse)
-{
-	CM_ThreadSpinLock& famillyMutex = m_familly->GetMutex();
-	famillyMutex.Lock();
-	// update the controllers of this node.
-	SetControllerTime(time);
-
-	// update children's simulate time.
-	if (recurse) {
-		for (SG_Node *childnode : m_children) {
-			childnode->SetSimulatedTime(time, recurse);
-		}
-	}
-	famillyMutex.Unlock();
 }
 
 bool SG_Node::Schedule(SG_QList& head)
@@ -299,7 +264,7 @@ bool SG_Node::Schedule(SG_QList& head)
 	// Put top parent in front of list to make sure they are updated before their
 	// children => the children will be udpated and removed from the list before
 	// we get to them, should they be in the list too.
-	const bool result = (m_SGparent) ? head.AddBack(this) : head.AddFront(this);
+	const bool result = (m_parent) ? head.AddBack(this) : head.AddFront(this);
 	scheduleMutex.Unlock();
 
 	return result;
@@ -332,57 +297,28 @@ SG_Node *SG_Node::GetNextRescheduled(SG_QList& head)
 	return result;
 }
 
-void SG_Node::AddSGController(SG_Controller *cont)
-{
-	m_SGcontrollers.push_back(cont);
-}
-
-void SG_Node::RemoveSGController(SG_Controller *cont)
-{
-	m_mutex.Lock();
-	m_SGcontrollers.erase(std::find(m_SGcontrollers.begin(), m_SGcontrollers.end(), cont));
-	m_mutex.Unlock();
-}
-
-void SG_Node::RemoveAllControllers()
-{
-	m_SGcontrollers.clear();
-}
-
-SGControllerList& SG_Node::GetSGControllerList()
-{
-	return m_SGcontrollers;
-}
-
 SG_Callbacks& SG_Node::GetCallBackFunctions()
 {
 	return m_callbacks;
 }
 
-void *SG_Node::GetSGClientObject() const
+void *SG_Node::GetClientObject() const
 {
-	return m_SGclientObject;
+	return m_clientObject;
 }
 
-void SG_Node::SetSGClientObject(void *clientObject)
+void SG_Node::SetClientObject(void *clientObject)
 {
-	m_SGclientObject = clientObject;
+	m_clientObject = clientObject;
 }
 
-void *SG_Node::GetSGClientInfo() const
+void *SG_Node::GetClientInfo() const
 {
-	return m_SGclientInfo;
+	return m_clientInfo;
 }
-void SG_Node::SetSGClientInfo(void *clientInfo)
+void SG_Node::SetClientInfo(void *clientInfo)
 {
-	m_SGclientInfo = clientInfo;
-}
-
-void SG_Node::SetControllerTime(double time)
-{
-	for (SG_Controller *cont : m_SGcontrollers) {
-		cont->SetSimulatedTime(time);
-	}
+	m_clientInfo = clientInfo;
 }
 
 void SG_Node::ClearModified()
@@ -417,32 +353,16 @@ SG_ParentRelation *SG_Node::GetParentRelation()
  * Update Spatial Data.
  * Calculates WorldTransform., (either doing its self or using the linked SGControllers)
  */
-bool SG_Node::UpdateSpatialData(const SG_Node *parent, double time, bool& parentUpdated)
+void SG_Node::UpdateSpatialData(const SG_Node *parent, bool& parentUpdated)
 {
-	bool bComputesWorldTransform = false;
-
-	// update spatial controllers
-	for (SG_Controller *cont : m_SGcontrollers) {
-		if (cont->Update(time)) {
-			bComputesWorldTransform = true;
-		}
-	}
-
-	// If none of the objects updated our values then we ask the
-	// parent_relation object owned by this class to update
-	// our world coordinates.
-
-	if (!bComputesWorldTransform) {
-		bComputesWorldTransform = ComputeWorldTransforms(parent, parentUpdated);
-	}
-
-	return bComputesWorldTransform;
+	// Ask the parent_relation object owned by this class to update our world coordinates.
+	ComputeWorldTransforms(parent, parentUpdated);
 }
 
 /**
  * Position and translation methods
  */
-void SG_Node::RelativeTranslate(const MT_Vector3& trans, const SG_Node *parent, bool local)
+void SG_Node::RelativeTranslate(const mt::vec3& trans, const SG_Node *parent, bool local)
 {
 	if (local) {
 		m_localPosition += m_localRotation * trans;
@@ -458,13 +378,13 @@ void SG_Node::RelativeTranslate(const MT_Vector3& trans, const SG_Node *parent, 
 	SetModified();
 }
 
-void SG_Node::SetLocalPosition(const MT_Vector3& trans)
+void SG_Node::SetLocalPosition(const mt::vec3& trans)
 {
 	m_localPosition = trans;
 	SetModified();
 }
 
-void SG_Node::SetWorldPosition(const MT_Vector3& trans)
+void SG_Node::SetWorldPosition(const mt::vec3& trans)
 {
 	m_worldPosition = trans;
 }
@@ -476,76 +396,70 @@ void SG_Node::SetWorldPosition(const MT_Vector3& trans)
 /**
  * Orientation and rotation methods.
  */
-void SG_Node::RelativeRotate(const MT_Matrix3x3& rot, bool local)
+void SG_Node::RelativeRotate(const mt::mat3& rot, bool local)
 {
 	m_localRotation = m_localRotation * (
 		local ?
 		rot
 		:
-		(GetWorldOrientation().inverse() * rot * GetWorldOrientation()));
+		(GetWorldOrientation().Inverse() * rot * GetWorldOrientation()));
 	SetModified();
 }
 
-void SG_Node::SetLocalOrientation(const MT_Matrix3x3& rot)
+void SG_Node::SetLocalOrientation(const mt::mat3& rot)
 {
 	m_localRotation = rot;
 	SetModified();
 }
 
-void SG_Node::SetLocalOrientation(const float *rot)
-{
-	m_localRotation.setValue(rot);
-	SetModified();
-}
-
-void SG_Node::SetWorldOrientation(const MT_Matrix3x3& rot)
+void SG_Node::SetWorldOrientation(const mt::mat3& rot)
 {
 	m_worldRotation = rot;
 }
 
-void SG_Node::RelativeScale(const MT_Vector3& scale)
+void SG_Node::RelativeScale(const mt::vec3& scale)
 {
 	m_localScaling = m_localScaling * scale;
 	SetModified();
 }
 
-void SG_Node::SetLocalScale(const MT_Vector3& scale)
+void SG_Node::SetLocalScale(const mt::vec3& scale)
 {
 	m_localScaling = scale;
 	SetModified();
 }
 
-void SG_Node::SetWorldScale(const MT_Vector3& scale)
+void SG_Node::SetWorldScale(const mt::vec3& scale)
 {
 	m_worldScaling = scale;
 }
 
-const MT_Vector3& SG_Node::GetLocalPosition() const
+const mt::vec3& SG_Node::GetLocalPosition() const
 {
 	return m_localPosition;
 }
 
-const MT_Matrix3x3& SG_Node::GetLocalOrientation() const
+const mt::mat3& SG_Node::GetLocalOrientation() const
 {
 	return m_localRotation;
 }
 
-const MT_Vector3& SG_Node::GetLocalScale() const
+const mt::vec3& SG_Node::GetLocalScale() const
 {
 	return m_localScaling;
 }
 
-const MT_Vector3& SG_Node::GetWorldPosition() const
+const mt::vec3& SG_Node::GetWorldPosition() const
 {
 	return m_worldPosition;
 }
 
-const MT_Matrix3x3& SG_Node::GetWorldOrientation() const
+const mt::mat3& SG_Node::GetWorldOrientation() const
 {
 	return m_worldRotation;
 }
 
-const MT_Vector3& SG_Node::GetWorldScaling() const
+const mt::vec3& SG_Node::GetWorldScaling() const
 {
 	return m_worldScaling;
 }
@@ -557,18 +471,19 @@ void SG_Node::SetWorldFromLocalTransform()
 	m_worldRotation = m_localRotation;
 }
 
-MT_Transform SG_Node::GetWorldTransform() const
+mt::mat3x4 SG_Node::GetWorldTransform() const
 {
-	return MT_Transform(m_worldPosition,
-	                    m_worldRotation.scaled(
-							m_worldScaling[0], m_worldScaling[1], m_worldScaling[2]));
+	return mt::mat3x4(m_worldRotation, m_worldPosition, m_worldScaling);
 }
 
-MT_Transform SG_Node::GetLocalTransform() const
+mt::mat3x4 SG_Node::GetLocalTransform() const
 {
-	return MT_Transform(m_localPosition,
-	                    m_localRotation.scaled(
-							m_localScaling[0], m_localScaling[1], m_localScaling[2]));
+	return mt::mat3x4(m_localRotation, m_localPosition, m_localScaling);
+}
+
+bool SG_Node::IsNegativeScaling() const
+{
+	return (m_worldScaling.x * m_worldScaling.y * m_worldScaling.z) < 0.0f;
 }
 
 bool SG_Node::ComputeWorldTransforms(const SG_Node *parent, bool& parentUpdated)
@@ -607,7 +522,7 @@ bool SG_Node::ActivateReplicationCallback(SG_Node *replica)
 {
 	if (m_callbacks.m_replicafunc) {
 		// Call client provided replication func
-		if (m_callbacks.m_replicafunc(replica, m_SGclientObject, m_SGclientInfo) == nullptr) {
+		if (m_callbacks.m_replicafunc(replica, m_clientObject, m_clientInfo) == nullptr) {
 			return false;
 		}
 	}
@@ -618,7 +533,7 @@ void SG_Node::ActivateDestructionCallback()
 {
 	if (m_callbacks.m_destructionfunc) {
 		// Call client provided destruction function on this!
-		m_callbacks.m_destructionfunc(this, m_SGclientObject, m_SGclientInfo);
+		m_callbacks.m_destructionfunc(this, m_clientObject, m_clientInfo);
 	}
 	else {
 		// no callback but must still destroy the node to avoid memory leak
@@ -631,7 +546,7 @@ void SG_Node::ActivateUpdateTransformCallback()
 	if (m_callbacks.m_updatefunc) {
 		// Call client provided update func.
 		transformMutex.Lock();
-		m_callbacks.m_updatefunc(this, m_SGclientObject, m_SGclientInfo);
+		m_callbacks.m_updatefunc(this, m_clientObject, m_clientInfo);
 		transformMutex.Unlock();
 	}
 }
@@ -647,7 +562,7 @@ bool SG_Node::ActivateScheduleUpdateCallback()
 
 	if (empty && m_callbacks.m_schedulefunc) {
 		// Call client provided update func.
-		return m_callbacks.m_schedulefunc(this, m_SGclientObject, m_SGclientInfo);
+		return m_callbacks.m_schedulefunc(this, m_clientObject, m_clientInfo);
 	}
 	return false;
 }
@@ -656,6 +571,6 @@ void SG_Node::ActivateRecheduleUpdateCallback()
 {
 	if (m_callbacks.m_reschedulefunc) {
 		// Call client provided update func.
-		m_callbacks.m_reschedulefunc(this, m_SGclientObject, m_SGclientInfo);
+		m_callbacks.m_reschedulefunc(this, m_clientObject, m_clientInfo);
 	}
 }

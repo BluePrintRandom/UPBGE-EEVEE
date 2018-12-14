@@ -36,17 +36,24 @@ set(INC
 )
 
 set(INC_SYS
-	../../../intern/moto/include
+	../../../intern/debugbreak
+	../../../intern/mathfu
 )
 
 set(SRC
+	CM_Clock.cpp
 	CM_Message.cpp
 	CM_Thread.cpp
 
+	CM_Clock.h
 	CM_Format.h
+	CM_List.h
+	CM_Map.h
 	CM_Message.h
 	CM_RefCount.h
+	CM_Template.h
 	CM_Thread.h
+	CM_Update.h
 )
 
 blender_add_lib(ge_common "${SRC}" "${INC}" "${INC_SYS}")

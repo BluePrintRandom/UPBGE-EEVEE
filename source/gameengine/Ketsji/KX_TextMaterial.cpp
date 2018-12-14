@@ -29,10 +29,9 @@
 #include "DNA_material_types.h"
 
 KX_TextMaterial::KX_TextMaterial()
-	:RAS_IPolyMaterial("__TextMaterial__", nullptr)
+	:RAS_IMaterial("__TextMaterial__")
 {
 	m_rasMode |= (RAS_ALPHA | RAS_TEXT);
-	m_flag |= RAS_BLENDERGLSL;
 	m_alphablend = GEMAT_ALPHA;
 }
 
@@ -40,9 +39,28 @@ KX_TextMaterial::~KX_TextMaterial()
 {
 }
 
-RAS_MaterialShader *KX_TextMaterial::GetShader() const
+void KX_TextMaterial::Prepare(RAS_Rasterizer *rasty)
 {
-	return nullptr;
+}
+
+void KX_TextMaterial::Activate(RAS_Rasterizer *rasty)
+{
+}
+
+void KX_TextMaterial::Desactivate(RAS_Rasterizer *rasty)
+{
+}
+
+void KX_TextMaterial::ActivateInstancing(RAS_Rasterizer *rasty, RAS_InstancingBuffer *buffer)
+{
+}
+
+void KX_TextMaterial::DesactivateInstancing()
+{
+}
+
+void KX_TextMaterial::ActivateMeshUser(RAS_MeshUser *meshUser, RAS_Rasterizer *rasty, const mt::mat3x4& camtrans)
+{
 }
 
 const std::string KX_TextMaterial::GetTextureName() const
@@ -65,15 +83,33 @@ SCA_IScene *KX_TextMaterial::GetScene() const
 	return nullptr;
 }
 
-void KX_TextMaterial::ReleaseMaterial()
+bool KX_TextMaterial::UseInstancing() const
+{
+	return false;
+}
+
+void KX_TextMaterial::ReloadMaterial()
 {
 }
 
-void KX_TextMaterial::UpdateIPO(MT_Vector4 rgba, MT_Vector3 specrgb, MT_Scalar hard, MT_Scalar spec, MT_Scalar ref,
-			   MT_Scalar emit, MT_Scalar ambient, MT_Scalar alpha, MT_Scalar specalpha)
+void KX_TextMaterial::UpdateIPO(const mt::vec4 &rgba, const mt::vec3 &specrgb, float hard, float spec, float ref,
+                                float emit, float ambient, float alpha, float specalpha)
 {
 }
 
-void KX_TextMaterial::OnConstruction()
+const RAS_AttributeArray::AttribList KX_TextMaterial::GetAttribs(const RAS_Mesh::LayersInfo& layersInfo) const
 {
+	return {};
 }
+
+RAS_InstancingBuffer::Attrib KX_TextMaterial::GetInstancingAttribs() const
+{
+	return RAS_InstancingBuffer::DEFAULT_ATTRIBS;
+}
+
+KX_TextMaterial *KX_TextMaterial::GetSingleton()
+{
+	static KX_TextMaterial singleton;
+	return &singleton;
+}
+

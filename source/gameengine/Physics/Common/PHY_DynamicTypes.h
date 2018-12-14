@@ -20,9 +20,10 @@
 #ifndef __PHY_DYNAMICTYPES_H__
 #define __PHY_DYNAMICTYPES_H__
 
-#include "MT_Vector3.h"
+#include "mathfu.h"
 
 struct KX_ClientObjectInfo;
+class PHY_IPhysicsController;
 
 enum
 {
@@ -36,47 +37,38 @@ enum
 	PHY_NUM_RESPONSE
 };
 
-class PHY_CollData
+class PHY_ICollData
 {
 public:
-	PHY_CollData()
+	PHY_ICollData()
 	{
 	}
 
-	virtual ~PHY_CollData()
+	virtual ~PHY_ICollData()
 	{
 	}
 
 	virtual unsigned int GetNumContacts() const = 0;
-	virtual MT_Vector3 GetLocalPointA(unsigned int index, bool first) const = 0;
-	virtual MT_Vector3 GetLocalPointB(unsigned int index, bool first) const = 0;
-	virtual MT_Vector3 GetWorldPoint(unsigned int index, bool first) const = 0;
-	virtual MT_Vector3 GetNormal(unsigned int index, bool first) const = 0;
+	virtual mt::vec3 GetLocalPointA(unsigned int index, bool first) const = 0;
+	virtual mt::vec3 GetLocalPointB(unsigned int index, bool first) const = 0;
+	virtual mt::vec3 GetWorldPoint(unsigned int index, bool first) const = 0;
+	virtual mt::vec3 GetNormal(unsigned int index, bool first) const = 0;
 	virtual float GetCombinedFriction(unsigned int index, bool first) const = 0;
 	virtual float GetCombinedRollingFriction(unsigned int index, bool first) const = 0;
 	virtual float GetCombinedRestitution(unsigned int index, bool first) const = 0;
 	virtual float GetAppliedImpulse(unsigned int index, bool first) const = 0;
 };
 
-typedef bool (*PHY_ResponseCallback)(void *client_data,
-                                     void *client_object1,
-                                     void *client_object2,
-                                     const PHY_CollData *coll_data);
-typedef void (*PHY_CullingCallback)(KX_ClientObjectInfo *info, void *param);
+struct PHY_CollisionTestResult
+{
+	bool collide;
+	bool isFirst;
+	PHY_ICollData *collData;
+};
 
-/// PHY_PhysicsType enumerates all possible Physics Entities.
-/// It is mainly used to create/add Physics Objects
-
-typedef enum PHY_PhysicsType {
-	PHY_CONVEX_RIGIDBODY = 16386,
-	PHY_CONCAVE_RIGIDBODY = 16399,
-	PHY_CONVEX_FIXEDBODY = 16388, //'collision object'
-	PHY_CONCAVE_FIXEDBODY = 16401,
-	PHY_CONVEX_KINEMATICBODY = 16387,
-	PHY_CONCAVE_KINEMATICBODY = 16400,
-	PHY_CONVEX_PHANTOMBODY = 16398,
-	PHY_CONCAVE_PHANTOMBODY = 16402
-} PHY_PhysicsType;
+using PHY_ResponseCallback = bool (*)(void *client_data, PHY_IPhysicsController *ctrl1, PHY_IPhysicsController *ctrl2,
+		const PHY_ICollData *coll_data, bool first);
+using PHY_CullingCallback =  void (*)(KX_ClientObjectInfo *info, void *param);
 
 /// PHY_ConstraintType enumerates all supported Constraint Types
 typedef enum PHY_ConstraintType {
@@ -99,7 +91,16 @@ typedef enum PHY_ShapeType {
 	PHY_SHAPE_MESH,
 	PHY_SHAPE_POLYTOPE,
 	PHY_SHAPE_COMPOUND,
+	PHY_SHAPE_EMPTY,
 	PHY_SHAPE_PROXY
 } PHY_ShapeType;
+
+typedef enum PHY_SolverType {
+	PHY_SOLVER_NONE,
+	PHY_SOLVER_SEQUENTIAL,
+	PHY_SOLVER_NNCG,
+	PHY_SOLVER_MLCP_DANTZIG,
+	PHY_SOLVER_MLCP_LEMKE
+} PHY_SolverType;
 
 #endif  /* __PHY_DYNAMICTYPES_H__ */

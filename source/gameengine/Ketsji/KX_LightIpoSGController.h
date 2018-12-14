@@ -35,44 +35,32 @@
 #include "SG_Controller.h"
 #include "SG_Node.h"
 
-#include "KX_IInterpolator.h"
+#include "SG_Interpolator.h"
 
 class RAS_ILightObject;
 
 class KX_LightIpoSGController : public SG_Controller
 {
 public:
-	MT_Scalar           m_energy;
-	MT_Scalar           m_col_rgb[3];
-	MT_Scalar           m_dist;
+	float           m_energy;
+	mt::vec3 m_col_rgb;
+	float           m_dist;
 
 private:
-	T_InterpolatorList	m_interpolators;
 	unsigned short  	m_modify_energy 	 : 1;
 	unsigned short	    m_modify_color       : 1;
 	unsigned short		m_modify_dist    	 : 1;
-	bool				m_modified;
 
-	double		        m_ipotime;
 public:
 	KX_LightIpoSGController() : 
 				m_modify_energy(false),
 				m_modify_color(false),
-				m_modify_dist(false),
-				m_modified(true),
-				m_ipotime(0.0)
+				m_modify_dist(false)
 		{}
 
-	virtual ~KX_LightIpoSGController();
+	virtual ~KX_LightIpoSGController() = default;
 
-	virtual	SG_Controller*	GetReplica(class SG_Node* destnode);
-
-	virtual bool Update(double time);
-	
-	virtual void SetSimulatedTime(double time) {
-		m_ipotime = time;
-		m_modified = true;
-	}
+	virtual bool Update(SG_Node *node);
 
 	void	SetModifyEnergy(bool modify) {
 		m_modify_energy = modify;
@@ -85,16 +73,6 @@ public:
 	void	SetModifyDist(bool modify) {
 		m_modify_dist = modify;
 	}
-
-			void
-	SetOption(
-		int option,
-		int value
-	) {
-		// intentionally empty
-	};
-
-	void	AddInterpolator(KX_IInterpolator* interp);
 };
 
 #endif  /* __KX_LIGHTIPOSGCONTROLLER_H__ */

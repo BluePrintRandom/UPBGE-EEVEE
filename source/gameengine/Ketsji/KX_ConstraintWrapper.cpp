@@ -58,24 +58,26 @@ PyObject *KX_ConstraintWrapper::PyGetParam(PyObject *args, PyObject *kwds)
 {
 	int dof;
 	float value;
-	
-	if (!PyArg_ParseTuple(args,"i:getParam",&dof))
+
+	if (!PyArg_ParseTuple(args, "i:getParam", &dof)) {
 		return nullptr;
-	
+	}
+
 	value = m_constraint->GetParam(dof);
 	return PyFloat_FromDouble(value);
-	
+
 }
 
 PyObject *KX_ConstraintWrapper::PySetParam(PyObject *args, PyObject *kwds)
 {
 	int dof;
-	float minLimit,maxLimit;
-	
-	if (!PyArg_ParseTuple(args,"iff:setParam",&dof,&minLimit,&maxLimit))
+	float minLimit, maxLimit;
+
+	if (!PyArg_ParseTuple(args, "iff:setParam", &dof, &minLimit, &maxLimit)) {
 		return nullptr;
-	
-	m_constraint->SetParam(dof,minLimit,maxLimit);
+	}
+
+	m_constraint->SetParam(dof, minLimit, maxLimit);
 	Py_RETURN_NONE;
 }
 
@@ -84,7 +86,7 @@ PyObject *KX_ConstraintWrapper::PySetParam(PyObject *args, PyObject *kwds)
 PyTypeObject KX_ConstraintWrapper::Type = {
 	PyVarObject_HEAD_INIT(nullptr, 0)
 	"KX_ConstraintWrapper",
-	sizeof(PyObjectPlus_Proxy),
+	sizeof(EXP_PyObjectPlus_Proxy),
 	0,
 	py_base_dealloc,
 	0,
@@ -92,40 +94,82 @@ PyTypeObject KX_ConstraintWrapper::Type = {
 	0,
 	0,
 	py_base_repr,
-	0,0,0,0,0,0,0,0,0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0,
 	Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
-	0,0,0,0,0,0,0,
+	0, 0, 0, 0, 0, 0, 0,
 	Methods,
 	0,
 	0,
-	&PyObjectPlus::Type,
-	0,0,0,0,0,0,
+	&EXP_PyObjectPlus::Type,
+	0, 0, 0, 0, 0, 0,
 	py_base_new
 };
 
 PyMethodDef KX_ConstraintWrapper::Methods[] = {
-	{"getConstraintId",(PyCFunction) KX_ConstraintWrapper::sPyGetConstraintId, METH_NOARGS},
-	{"setParam",(PyCFunction) KX_ConstraintWrapper::sPySetParam, METH_VARARGS},
-	{"getParam",(PyCFunction) KX_ConstraintWrapper::sPyGetParam, METH_VARARGS},
-	{nullptr,nullptr} //Sentinel
+	{"getConstraintId", (PyCFunction)KX_ConstraintWrapper::sPyGetConstraintId, METH_NOARGS},
+	{"setParam", (PyCFunction)KX_ConstraintWrapper::sPySetParam, METH_VARARGS},
+	{"getParam", (PyCFunction)KX_ConstraintWrapper::sPyGetParam, METH_VARARGS},
+	{nullptr, nullptr} //Sentinel
 };
 
 PyAttributeDef KX_ConstraintWrapper::Attributes[] = {
-	KX_PYATTRIBUTE_RO_FUNCTION("constraint_id", KX_ConstraintWrapper, pyattr_get_constraintId),
-	KX_PYATTRIBUTE_RO_FUNCTION("constraint_type", KX_ConstraintWrapper, pyattr_get_constraintType),
-	KX_PYATTRIBUTE_NULL	//Sentinel
+	EXP_PYATTRIBUTE_RO_FUNCTION("constraint_id", KX_ConstraintWrapper, pyattr_get_constraintId),
+	EXP_PYATTRIBUTE_RO_FUNCTION("constraint_type", KX_ConstraintWrapper, pyattr_get_constraintType),
+	EXP_PYATTRIBUTE_RW_FUNCTION("breakingThreshold", KX_ConstraintWrapper, pyattr_get_breakingThreshold, pyattr_set_breakingThreshold),
+	EXP_PYATTRIBUTE_RW_FUNCTION("enabled", KX_ConstraintWrapper, pyattr_get_enabled, pyattr_set_enabled),
+	EXP_PYATTRIBUTE_NULL    //Sentinel
 };
 
-PyObject *KX_ConstraintWrapper::pyattr_get_constraintId(PyObjectPlus *self_v, const KX_PYATTRIBUTE_DEF *attrdef)
+PyObject *KX_ConstraintWrapper::pyattr_get_constraintId(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef)
 {
-	KX_ConstraintWrapper* self = static_cast<KX_ConstraintWrapper*>(self_v);
+	KX_ConstraintWrapper *self = static_cast<KX_ConstraintWrapper *>(self_v);
 	return PyLong_FromLong(self->m_constraint->GetIdentifier());
 }
 
-PyObject *KX_ConstraintWrapper::pyattr_get_constraintType(PyObjectPlus *self_v, const KX_PYATTRIBUTE_DEF *attrdef)
+PyObject *KX_ConstraintWrapper::pyattr_get_constraintType(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef)
 {
-	KX_ConstraintWrapper* self = static_cast<KX_ConstraintWrapper*>(self_v);
+	KX_ConstraintWrapper *self = static_cast<KX_ConstraintWrapper *>(self_v);
 	return PyLong_FromLong(self->m_constraint->GetType());
+}
+
+PyObject *KX_ConstraintWrapper::pyattr_get_breakingThreshold(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef)
+{
+	KX_ConstraintWrapper *self = static_cast<KX_ConstraintWrapper *>(self_v);
+	return PyFloat_FromDouble(self->m_constraint->GetBreakingThreshold());
+}
+
+int KX_ConstraintWrapper::pyattr_set_breakingThreshold(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef, PyObject *value)
+{
+	KX_ConstraintWrapper *self = static_cast<KX_ConstraintWrapper *>(self_v);
+	float val = PyFloat_AsDouble(value);
+
+	if (val == -1 && PyErr_Occurred()) {
+		PyErr_Format(PyExc_AttributeError, "constraint.%s = float: KX_ConstraintWrapper, expected a float", attrdef->m_name.c_str());
+		return PY_SET_ATTR_FAIL;
+	}
+
+	self->m_constraint->SetBreakingThreshold(val);
+	return PY_SET_ATTR_SUCCESS;
+}
+
+PyObject *KX_ConstraintWrapper::pyattr_get_enabled(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef)
+{
+	KX_ConstraintWrapper *self = static_cast<KX_ConstraintWrapper *>(self_v);
+	return PyBool_FromLong(self->m_constraint->GetEnabled());
+}
+
+int KX_ConstraintWrapper::pyattr_set_enabled(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef, PyObject *value)
+{
+	KX_ConstraintWrapper *self = static_cast<KX_ConstraintWrapper *>(self_v);
+	int val = PyObject_IsTrue(value);
+
+	if (val == -1 && PyErr_Occurred()) {
+		PyErr_Format(PyExc_AttributeError, "constraint.%s = bool: KX_ConstraintWrapper, expected True or False", attrdef->m_name.c_str());
+		return PY_SET_ATTR_FAIL;
+	}
+
+	self->m_constraint->SetEnabled(val);
+	return PY_SET_ATTR_SUCCESS;
 }
 
 #endif // WITH_PYTHON

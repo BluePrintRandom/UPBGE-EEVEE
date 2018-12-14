@@ -30,40 +30,55 @@
 #define __RAS_MESH_USER_H__
 
 #include "RAS_MeshSlot.h"
-#include "MT_Vector4.h"
+
+#include <memory>
 
 class RAS_BoundingBox;
+class RAS_BatchGroup;
+class RAS_Deformer;
 
-class RAS_MeshUser
+class RAS_MeshUser : public mt::SimdClassAllocator
 {
 private:
+	/// Lamp layer.
+	unsigned int m_layer;
 	/// OpenGL face wise.
 	bool m_frontFace;
 	/// Object color.
-	MT_Vector4 m_color;
+	mt::vec4 m_color;
 	/// Object transformation matrix.
-	float m_matrix[16];
+	mt::mat4 m_matrix;
 	/// Bounding box corresponding to a mesh or deformer.
 	RAS_BoundingBox *m_boundingBox;
 	/// Client object owner of this mesh user.
 	void *m_clientObject;
 	/// Unique mesh slots used for render of this object.
-	RAS_MeshSlotList m_meshSlots;
+	std::vector<RAS_MeshSlot> m_meshSlots;
+	/// Possible batching groups shared between mesh users.
+	RAS_BatchGroup *m_batchGroup;
+	/// Deformer of this mesh user modifying the display array of the mesh slots.
+	std::unique_ptr<RAS_Deformer> m_deformer;
 
 public:
-	RAS_MeshUser(void *clientobj, RAS_BoundingBox *boundingBox);
+	RAS_MeshUser(void *clientobj, RAS_BoundingBox *boundingBox, RAS_Deformer *deformer);
 	virtual ~RAS_MeshUser();
 
-	void AddMeshSlot(RAS_MeshSlot *meshSlot);
+	void NewMeshSlot(RAS_DisplayArrayBucket *arrayBucket);
+	unsigned int GetLayer() const;
 	bool GetFrontFace() const;
-	const MT_Vector4& GetColor() const;
-	float *GetMatrix();
+	const mt::vec4& GetColor() const;
+	const mt::mat4& GetMatrix() const;
 	RAS_BoundingBox *GetBoundingBox() const;
 	void *GetClientObject() const;
-	RAS_MeshSlotList& GetMeshSlots();
+	std::vector<RAS_MeshSlot>& GetMeshSlots();
+	RAS_BatchGroup *GetBatchGroup() const;
+	RAS_Deformer *GetDeformer();
 
+	void SetLayer(unsigned int layer);
 	void SetFrontFace(bool frontFace);
-	void SetColor(const MT_Vector4& color);
+	void SetColor(const mt::vec4& color);
+	void SetMatrix(const mt::mat4& matrix);
+	void SetBatchGroup(RAS_BatchGroup *batchGroup);
 
 	void ActivateMeshSlots();
 };

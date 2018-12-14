@@ -27,27 +27,23 @@ set(INC
 	.
 	../BlenderRoutines
 	../Common
+	../Converter
 	../Device
 	../Expressions
 	../GameLogic
 	../Ketsji
 	../Rasterizer
+	../Rasterizer/Node
 	../Rasterizer/RAS_OpenGLRasterizer
 	../SceneGraph
 	../../blender/blenkernel
 	../../blender/blenlib
-	../../blender/blentranslation
-	../../blender/draw
-	../../blender/draw/intern
-	../../blender/draw/engines/eevee
 	../../blender/editors/include
 	../../blender/gpu
 	../../blender/imbuf
-	../../blender/makesrna
 	../../blender/makesdna
 	../../blender/python
 	../../blender/python/generic
-	../../blender/render/extern/include
 	../../../intern/ffmpeg
 	../../../intern/glew-mx
 	../../../intern/guardedalloc
@@ -57,7 +53,8 @@ set(INC
 )
 
 set(INC_SYS
-	../../../intern/moto/include
+	../../../intern/debugbreak
+	../../../intern/mathfu
 	${GLEW_INCLUDE_PATH}
 	${BOOST_INCLUDE_DIR}
 )
@@ -110,6 +107,16 @@ if(WITH_CODEC_FFMPEG)
 		${PTHREADS_INCLUDE_DIRS}
 	)
 	add_definitions(-DWITH_FFMPEG)
+
+	remove_strict_cxx_flags_file(
+		VideoFFmpeg.cpp
+		VideoDeckLink
+		DeckLink
+	)
+endif()
+
+if (WITH_GAMEENGINE_GPU_SYNC)
+	add_definitions(-DWITH_GAMEENGINE_GPU_SYNC)
 endif()
 
 if(WITH_GAMEENGINE_DECKLINK)

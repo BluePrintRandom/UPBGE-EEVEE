@@ -21,12 +21,12 @@
  */
 
 /** \file KX_2DFilterManager.cpp
-*  \ingroup ketsji
-*/
+ *  \ingroup ketsji
+ */
 
 #include "KX_2DFilterManager.h"
 #include "KX_2DFilter.h"
-#include "KX_2DFilterFrameBuffer.h"
+#include "KX_2DFilterOffScreen.h"
 
 #include "CM_Message.h"
 
@@ -46,20 +46,20 @@ RAS_2DFilter *KX_2DFilterManager::NewFilter(RAS_2DFilterData& filterData)
 #ifdef WITH_PYTHON
 PyMethodDef KX_2DFilterManager::Methods[] = {
 	// creation
-	KX_PYMETHODTABLE(KX_2DFilterManager, getFilter),
-	KX_PYMETHODTABLE(KX_2DFilterManager, addFilter),
-	KX_PYMETHODTABLE(KX_2DFilterManager, removeFilter),
+	EXP_PYMETHODTABLE(KX_2DFilterManager, getFilter),
+	EXP_PYMETHODTABLE(KX_2DFilterManager, addFilter),
+	EXP_PYMETHODTABLE(KX_2DFilterManager, removeFilter),
 	{nullptr, nullptr} //Sentinel
 };
 
 PyAttributeDef KX_2DFilterManager::Attributes[] = {
-	KX_PYATTRIBUTE_NULL //Sentinel
+	EXP_PYATTRIBUTE_NULL //Sentinel
 };
 
 PyTypeObject KX_2DFilterManager::Type = {
 	PyVarObject_HEAD_INIT(nullptr, 0)
 	"KX_2DFilterManager",
-	sizeof(PyObjectPlus_Proxy),
+	sizeof(EXP_PyObjectPlus_Proxy),
 	0,
 	py_base_dealloc,
 	0,
@@ -73,13 +73,13 @@ PyTypeObject KX_2DFilterManager::Type = {
 	Methods,
 	0,
 	0,
-	&PyObjectPlus::Type,
+	&EXP_PyObjectPlus::Type,
 	0, 0, 0, 0, 0, 0,
 	py_base_new
 };
 
 
-KX_PYMETHODDEF_DOC(KX_2DFilterManager, getFilter, " getFilter(index)")
+EXP_PYMETHODDEF_DOC(KX_2DFilterManager, getFilter, " getFilter(index)")
 {
 	int index = 0;
 
@@ -87,7 +87,7 @@ KX_PYMETHODDEF_DOC(KX_2DFilterManager, getFilter, " getFilter(index)")
 		return nullptr;
 	}
 
-	KX_2DFilter *filter = (KX_2DFilter*)GetFilterPass(index);
+	KX_2DFilter *filter = (KX_2DFilter *)GetFilterPass(index);
 
 	if (filter) {
 		return filter->GetProxy();
@@ -96,7 +96,7 @@ KX_PYMETHODDEF_DOC(KX_2DFilterManager, getFilter, " getFilter(index)")
 	Py_RETURN_NONE;
 }
 
-KX_PYMETHODDEF_DOC(KX_2DFilterManager, addFilter, " addFilter(index, type, fragmentProgram)")
+EXP_PYMETHODDEF_DOC(KX_2DFilterManager, addFilter, " addFilter(index, type, fragmentProgram)")
 {
 	int index = 0;
 	int type = 0;
@@ -130,7 +130,7 @@ KX_PYMETHODDEF_DOC(KX_2DFilterManager, addFilter, " addFilter(index, type, fragm
 	return filter->GetProxy();
 }
 
-KX_PYMETHODDEF_DOC(KX_2DFilterManager, removeFilter, " removeFilter(index)")
+EXP_PYMETHODDEF_DOC(KX_2DFilterManager, removeFilter, " removeFilter(index)")
 {
 	int index = 0;
 

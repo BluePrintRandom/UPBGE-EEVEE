@@ -35,8 +35,6 @@
 
 #include "MEM_guardedalloc.h"
 
-#include "KX_KetsjiEngine.h"
-
 extern "C" {
 #  include "IMB_imbuf.h"
 #  include "IMB_imbuf_types.h"
@@ -64,14 +62,21 @@ struct ScreenshotTaskData {
  */
 void save_screenshot_thread_func(TaskPool *__restrict pool, void *taskdata, int threadid);
 
+const int RAS_ICanvas::swapInterval[RAS_ICanvas::SWAP_CONTROL_MAX] = {
+	0, // VSYNC_OFF
+	1, // VSYNC_ON
+	-1 // VSYNC_ADAPTIVE
+};
 
 RAS_ICanvas::RAS_ICanvas(RAS_Rasterizer *rasty)
 	:m_samples(0),
 	m_hdrType(RAS_Rasterizer::RAS_HDR_NONE),
-	m_rasterizer(rasty)
+	m_swapControl(VSYNC_OFF),
+	m_frame(1)
 {
 	m_taskscheduler = BLI_task_scheduler_create(TASK_SCHEDULER_AUTO_THREADS);
 	m_taskpool = BLI_task_pool_create(m_taskscheduler, nullptr);
+	m_rasterizer = rasty;
 }
 
 RAS_ICanvas::~RAS_ICanvas()
@@ -86,6 +91,16 @@ RAS_ICanvas::~RAS_ICanvas()
 		BLI_task_scheduler_free(m_taskscheduler);
 		m_taskscheduler = nullptr;
 	}
+}
+
+void RAS_ICanvas::SetSwapControl(SwapControl control)
+{
+	m_swapControl = control;
+}
+
+RAS_ICanvas::SwapControl RAS_ICanvas::GetSwapControl() const
+{
+	return m_swapControl;
 }
 
 void RAS_ICanvas::SetSamples(int samples)
@@ -106,36 +121,6 @@ void RAS_ICanvas::SetHdrType(RAS_Rasterizer::HdrType type)
 RAS_Rasterizer::HdrType RAS_ICanvas::GetHdrType() const
 {
 	return m_hdrType;
-}
-
-int RAS_ICanvas::GetWidth() const
-{
-	return m_viewportArea.GetWidth();
-}
-
-int RAS_ICanvas::GetHeight() const
-{
-	return m_viewportArea.GetHeight();
-}
-
-float RAS_ICanvas::GetMouseNormalizedX(int x)
-{
-	return float(x) / GetWidth();
-}
-
-float RAS_ICanvas::GetMouseNormalizedY(int y)
-{
-	return float(y) / GetHeight();
-}
-
-const RAS_Rect& RAS_ICanvas::GetWindowArea() const
-{
-	return m_windowArea;
-}
-
-const RAS_Rect& RAS_ICanvas::GetViewportArea() const
-{
-	return m_viewportArea;
 }
 
 void RAS_ICanvas::FlushScreenshots()

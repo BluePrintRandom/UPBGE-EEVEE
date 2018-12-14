@@ -33,11 +33,15 @@ struct Tex;
 struct Image;
 struct GPUTexture;
 
+class RAS_TextureRenderer;
+
 class RAS_Texture
 {
 protected:
 	int m_bindCode;
 	std::string m_name;
+
+	RAS_TextureRenderer *m_renderer;
 
 public:
 	RAS_Texture();
@@ -52,13 +56,16 @@ public:
 	virtual GPUTexture *GetGPUTexture() const = 0;
 	std::string& GetName();
 
+	void SetRenderer(RAS_TextureRenderer *renderer);
+	RAS_TextureRenderer *GetRenderer() const;
+
 	virtual unsigned int GetTextureType() = 0;
 
 	/// Return GL_TEXTURE_2D.
 	static int GetCubeMapTextureType();
 	/// Return GL_TEXTURE_CUBE_MAP.
 	static int GetTexture2DType();
-	/// Return all the OpenGL cube map face target, e.g GL_TEXTURE_CUBE_MAP_POSITIVE_Z.
+	/// Return all the OpenGL cube map face target, e.g GL_TEXTURE_CUBE_MAP_POSITIVE_Z_ARB.
 	static const std::array<int, 6>& GetCubeMapTargets();
 
 	enum {MaxUnits = 8};

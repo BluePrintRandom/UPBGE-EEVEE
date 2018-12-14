@@ -44,44 +44,28 @@
 #include "DNA_object_types.h"
 #include "BKE_armature.h"
 
-#include "RAS_Deformer.h"
-
 struct Object;
 struct bPoseChannel;
-class RAS_MeshObject;
-class RAS_IPolyMaterial;
+class RAS_Mesh;
+class RAS_IMaterial;
 
 class BL_SkinDeformer : public BL_MeshDeformer
 {
 public:
-	virtual void Relink(std::map<SCA_IObject *, SCA_IObject *>& map);
-	void SetArmature(BL_ArmatureObject *armobj);
-
-	BL_SkinDeformer(BL_DeformableGameObject *gameobj,
-					Object *bmeshobj,
-					RAS_MeshObject *mesh,
-					BL_ArmatureObject *arma = nullptr);
-
-	/* this second constructor is needed for making a mesh deformable on the fly. */
-	BL_SkinDeformer(BL_DeformableGameObject *gameobj,
+	BL_SkinDeformer(KX_GameObject *gameobj,
 					Object *bmeshobj_old,
 					Object *bmeshobj_new,
-					RAS_MeshObject *mesh,
-					bool release_object,
-					bool recalc_normal,
-					BL_ArmatureObject *arma = nullptr);
-
-	virtual RAS_Deformer *GetReplica();
-	virtual void ProcessReplica();
+					RAS_Mesh *mesh,
+					BL_ArmatureObject *arma);
 
 	virtual ~BL_SkinDeformer();
-	bool Update();
-	bool UpdateInternal(bool shape_applied);
-	bool Apply(RAS_MeshMaterial *meshmat, RAS_IDisplayArray *array);
-	bool UpdateBuckets()
+	virtual bool Update();
+	bool UpdateInternal(bool shape_applied, bool recalcNormal);
+	virtual void Apply(RAS_DisplayArray *array);
+	virtual void UpdateBuckets()
 	{
 		// update the deformer and all the mesh slots; Apply() does it well, so just call it.
-		return Apply(nullptr, nullptr);
+		Apply(nullptr);
 	}
 	bool PoseUpdated()
 	{
@@ -98,20 +82,16 @@ public:
 
 protected:
 	BL_ArmatureObject *m_armobj; // Our parent object
-	float m_time;
 	double m_lastArmaUpdate;
 	float m_obmat[4][4]; // the reference matrix for skeleton deform
-	bool m_releaseobject;
-	bool m_poseApplied;
-	bool m_recalcNormal;
 	bool m_copyNormals; // dirty flag so we know if Apply() needs to copy normal information (used for BGEDeformVerts())
-	bPoseChannel **m_dfnrToPC;
+	std::vector<bPoseChannel *> m_dfnrToPC;
 	short m_deformflags;
 
-	void BlenderDeformVerts();
-	void BGEDeformVerts();
+	void BlenderDeformVerts(bool recalcNormal);
+	void BGEDeformVerts(bool recalcNormal);
 
-	void UpdateTransverts();
+	virtual void UpdateTransverts();
 };
 
 #endif  /* __BL_SKINDEFORMER_H__ */

@@ -63,10 +63,11 @@ typedef std::map<class SCA_ISensor*,controllerlist > sensormap_t;
 #include "SCA_IActuator.h"
 #include "SCA_EventManager.h"
 
+#include <memory>
 
 class SCA_LogicManager
 {
-	std::vector<class SCA_EventManager*>		m_eventmanagers;
+	std::vector<std::unique_ptr<SCA_EventManager> > m_eventmanagers;
 	
 	// SG_DList: Head of objects having activated actuators
 	//           element: SCA_IObject::m_activeActuators
@@ -77,12 +78,12 @@ class SCA_LogicManager
 
 	// need to find better way for this
 	// also known as FactoryManager...
-	std::map<std::string, CValue *>	m_mapStringToGameObjects;
+	std::map<std::string, EXP_Value *>	m_mapStringToGameObjects;
 	std::map<std::string, void *>		m_mapStringToMeshes;
 	std::map<std::string, void *>		m_mapStringToActions;
 
 	std::map<std::string, void *>		m_map_gamemeshname_to_blendobj;
-	std::map<void *, CValue *>			m_map_blendobj_to_gameobj;
+	std::map<void *, EXP_Value *>			m_map_blendobj_to_gameobj;
 public:
 	SCA_LogicManager();
 	virtual ~SCA_LogicManager();
@@ -106,7 +107,6 @@ public:
 
 	void	AddTriggeredController(SCA_IController* controller, SCA_ISensor* sensor);
 	SCA_EventManager*	FindEventManager(int eventmgrtype);
-	std::vector<class SCA_EventManager*>	GetEventManagers() { return m_eventmanagers; }
 
 	/**
 	 * remove Logic Bricks from the running logicmanager
@@ -119,24 +119,24 @@ public:
 	// for the scripting... needs a FactoryManager later (if we would have time... ;)
 	void	RegisterMeshName(const std::string& meshname,void* mesh);
 	void	UnregisterMeshName(const std::string& meshname,void* mesh);
-	std::map<std::string, void *>&	GetMeshMap() { return m_mapStringToMeshes; }
-	std::map<std::string, void *>&	GetActionMap() { return m_mapStringToActions; }
-	
+	void UnregisterMesh(void *mesh);
+
 	void	RegisterActionName(const std::string& actname,void* action);
+	void UnregisterAction(void *action);
 
 	void*	GetActionByName (const std::string& actname);
 	void*	GetMeshByName(const std::string& meshname);
 
-	void	RegisterGameObjectName(const std::string& gameobjname,CValue* gameobj);
+	void	RegisterGameObjectName(const std::string& gameobjname,EXP_Value* gameobj);
 	void	UnregisterGameObjectName(const std::string& gameobjname);
-	class CValue*	GetGameObjectByName(const std::string& gameobjname);
+	class EXP_Value*	GetGameObjectByName(const std::string& gameobjname);
 
 	void	RegisterGameMeshName(const std::string& gamemeshname, void* blendobj);
 	void*	FindBlendObjByGameMeshName(const std::string& gamemeshname);
 
-	void	RegisterGameObj(void* blendobj, CValue* gameobj);
-	void	UnregisterGameObj(void* blendobj, CValue* gameobj);
-	CValue*	FindGameObjByBlendObj(void* blendobj);
+	void	RegisterGameObj(void* blendobj, EXP_Value* gameobj);
+	void	UnregisterGameObj(void* blendobj, EXP_Value* gameobj);
+	EXP_Value*	FindGameObjByBlendObj(void* blendobj);
 };
 
 #endif  /* __SCA_LOGICMANAGER_H__ */

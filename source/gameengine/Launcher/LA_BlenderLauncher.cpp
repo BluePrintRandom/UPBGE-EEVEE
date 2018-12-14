@@ -30,8 +30,6 @@
 
 #include "KX_PythonInit.h"
 
-#include "CM_Message.h"
-
 extern "C" {
 #  include "BKE_context.h"
 
@@ -53,29 +51,31 @@ extern "C" {
 #  include "BLI_rect.h"
 }
 
-LA_BlenderLauncher::LA_BlenderLauncher(GHOST_ISystem *system, Main *maggie, Scene *scene, GlobalSettings *gs, RAS_Rasterizer::StereoMode stereoMode, 
-									   int argc, char **argv, bContext *context, rcti *camframe, ARegion *ar, int alwaysUseExpandFraming)
-	:LA_Launcher(system, maggie, scene, gs, stereoMode, scene->gm.aasamples, argc, argv),
+LA_BlenderLauncher::LA_BlenderLauncher(GHOST_ISystem *system, Main *maggie, Scene *scene, GlobalSettings *gs, RAS_Rasterizer::StereoMode stereoMode,
+                                       int argc, char **argv, bContext *context, rcti *camframe, ARegion *ar, int alwaysUseExpandFraming)
+	:LA_Launcher(system, maggie, scene, gs, stereoMode, scene->gm.aasamples, alwaysUseExpandFraming, argc, argv),
 	m_context(context),
 	m_ar(ar),
 	m_camFrame(camframe),
-	m_alwaysUseExpandFraming(alwaysUseExpandFraming),
 	m_drawLetterBox(false)
 {
 	m_windowManager = CTX_wm_manager(m_context);
 	m_window = CTX_wm_window(m_context);
 	m_view3d = CTX_wm_view3d(m_context);
-	CM_Debug(ar->winx << ", " << ar->winy);
-	print_rcti("rcti: ", &ar->winrct);
+
+	m_areaRect.SetLeft(m_camFrame->xmin);
+	m_areaRect.SetBottom(m_camFrame->ymin);
+	m_areaRect.SetRight(m_camFrame->xmax);
+	m_areaRect.SetTop(m_camFrame->ymax);
 }
 
 LA_BlenderLauncher::~LA_BlenderLauncher()
 {
 }
 
-RAS_ICanvas *LA_BlenderLauncher::CreateCanvas()
+RAS_ICanvas *LA_BlenderLauncher::CreateCanvas(RAS_Rasterizer *rasty)
 {
-	return (new KX_BlenderCanvas(m_rasterizer, m_windowManager, m_window, m_camFrame, m_ar));
+	return (new KX_BlenderCanvas(rasty, m_windowManager, m_window, m_areaRect));
 }
 
 RAS_Rasterizer::DrawType LA_BlenderLauncher::GetRasterizerDrawMode()
@@ -83,7 +83,7 @@ RAS_Rasterizer::DrawType LA_BlenderLauncher::GetRasterizerDrawMode()
 	View3D *v3d = CTX_wm_view3d(m_context);
 
 	RAS_Rasterizer::DrawType drawmode = RAS_Rasterizer::RAS_TEXTURED;
-	switch(v3d->drawtype) {
+	switch (v3d->drawtype) {
 		case OB_BOUNDBOX:
 		case OB_WIRE:
 		{
@@ -99,29 +99,17 @@ RAS_Rasterizer::DrawType LA_BlenderLauncher::GetRasterizerDrawMode()
 	return drawmode;
 }
 
-bool LA_BlenderLauncher::GetUseAlwaysExpandFraming()
-{
-	return m_alwaysUseExpandFraming;
-}
-
 void LA_BlenderLauncher::InitCamera()
 {
 	RegionView3D *rv3d = CTX_wm_region_view3d(m_context);
-
-	// Some blender stuff.
-	float camzoom = 1.0f;
-
 	if (rv3d->persp == RV3D_CAMOB) {
 		if (m_startScene->gm.framing.type == SCE_GAMEFRAMING_BARS) { /* Letterbox */
 			m_drawLetterBox = true;
 		}
 		else {
-			camzoom = 1.0f / BKE_screen_view3d_zoom_to_fac(rv3d->camzoom);
+			m_camZoom = 1.0f / BKE_screen_view3d_zoom_to_fac(rv3d->camzoom);
 		}
 	}
-
-	m_ketsjiEngine->SetCameraZoom(camzoom);
-	m_ketsjiEngine->SetCameraOverrideZoom(2.0f);
 
 	if (rv3d->persp != RV3D_CAMOB) {
 		RAS_CameraData camdata = RAS_CameraData();
@@ -129,25 +117,15 @@ void LA_BlenderLauncher::InitCamera()
 		camdata.m_clipstart = m_view3d->near;
 		camdata.m_clipend = m_view3d->far;
 		camdata.m_perspective = (rv3d->persp != RV3D_ORTHO);
+		camdata.m_zoom = 2.0f;
 
-		m_ketsjiEngine->EnableCameraOverride(m_startSceneName, MT_Matrix4x4(&rv3d->winmat[0][0]), MT_Matrix4x4(&rv3d->viewmat[0][0]), camdata);
+		m_ketsjiEngine->EnableCameraOverride(m_startSceneName, mt::mat4(rv3d->winmat), mt::mat4(rv3d->viewmat), camdata);
 	}
 }
 
-
-void LA_BlenderLauncher::InitPython()
+void LA_BlenderLauncher::SetWindowOrder(short order)
 {
-#ifdef WITH_PYTHON
-
-#endif  // WITH_PYTHON
-}
-void LA_BlenderLauncher::ExitPython()
-{
-#ifdef WITH_PYTHON
-
-	exitGamePythonScripting();
-
-#endif  // WITH_PYTHON
+	//wm_window_set_order(m_window, order);
 }
 
 void LA_BlenderLauncher::InitEngine()
@@ -157,7 +135,7 @@ void LA_BlenderLauncher::InitEngine()
 	m_savedBlenderData.camera = m_startScene->camera;
 
 	if (m_view3d->scenelock == 0) {
-		m_startScene->lay = m_view3d->local_view_uuid;
+		m_startScene->lay = m_view3d->local_view_uuid; // m_view3d->lay;
 		m_startScene->camera = m_view3d->camera;
 	}
 
@@ -171,7 +149,7 @@ void LA_BlenderLauncher::ExitEngine()
 	// Lock frame and camera enabled - restoring global values.
 	if (m_view3d->scenelock == 0) {
 		m_startScene->lay = m_savedBlenderData.sceneLayer;
-		m_startScene->camera= m_savedBlenderData.camera;
+		m_startScene->camera = m_savedBlenderData.camera;
 	}
 
 	// Free all window manager events unused.
@@ -185,16 +163,16 @@ void LA_BlenderLauncher::RenderEngine()
 		// We do this here since we set the canvas to be within the frames. This means the engine
 		// itself is unaware of the extra space, so we clear the whole region for it.
 		m_rasterizer->SetClearColor(m_startScene->gm.framing.col[0], m_startScene->gm.framing.col[1], m_startScene->gm.framing.col[2]);
-// 		m_rasterizer->SetViewport(m_ar->winrct.xmin, m_ar->winrct.ymin,
-// 		           BLI_rcti_size_x(&m_ar->winrct) + 1, BLI_rcti_size_y(&m_ar->winrct) + 1);
+		m_rasterizer->SetViewport(m_ar->winrct.xmin, m_ar->winrct.ymin,
+		                          BLI_rcti_size_x(&m_ar->winrct) + 1, BLI_rcti_size_y(&m_ar->winrct) + 1);
 		m_rasterizer->SetScissor(m_ar->winrct.xmin, m_ar->winrct.ymin,
-		           BLI_rcti_size_x(&m_ar->winrct) + 1, BLI_rcti_size_y(&m_ar->winrct) + 1);
+		                         BLI_rcti_size_x(&m_ar->winrct) + 1, BLI_rcti_size_y(&m_ar->winrct) + 1);
 		m_rasterizer->Clear(RAS_Rasterizer::RAS_COLOR_BUFFER_BIT);
 	}
 	LA_Launcher::RenderEngine();
 }
 
-bool LA_BlenderLauncher::EngineNextFrame()
+KX_ExitInfo LA_BlenderLauncher::EngineNextFrame()
 {
 	// Free all window manager events unused.
 	wm_event_free_all(m_window);

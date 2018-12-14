@@ -33,36 +33,48 @@
 #ifndef __KX_KETSJIENGINE_H__
 #define __KX_KETSJIENGINE_H__
 
-#include "MT_Matrix4x4.h"
 #include <string>
-#include "KX_ISystem.h"
-#include "KX_Scene.h"
 #include "KX_TimeCategoryLogger.h"
 #include "EXP_Python.h"
 #include "KX_WorldInfo.h"
 #include "RAS_CameraData.h"
 #include "RAS_Rasterizer.h"
+#include "RAS_DebugDraw.h"
+#include "SCA_IInputDevice.h" // For SCA_IInputDevice::SCA_EnumInputs.
+#include "CM_Clock.h"
 #include <vector>
 
 struct TaskScheduler;
-class KX_ISystem;
-class KX_BlenderConverter;
+class KX_Scene;
+class KX_Camera;
+class BL_Converter;
 class KX_NetworkMessageManager;
 class RAS_ICanvas;
-class RAS_FrameBuffer;
+class RAS_OffScreen;
+class RAS_Query;
 class SCA_IInputDevice;
-struct EEVEE_ViewLayerData;
+template <class T>
+class EXP_ListValue;
 
-enum class KX_ExitRequest
+struct KX_ExitInfo
 {
-	NO_REQUEST = 0,
-	QUIT_GAME,
-	RESTART_GAME,
-	START_OTHER_GAME,
-	NO_SCENES_LEFT,
-	BLENDER_ESC,
-	OUTSIDE,
-	MAX
+	enum Code {
+		NO_REQUEST = 0,
+		QUIT_GAME,
+		RESTART_GAME,
+		START_OTHER_GAME,
+		NO_SCENES_LEFT,
+		BLENDER_ESC,
+		OUTSIDE,
+		MAX
+	};
+
+	Code m_code;
+
+	/// Extra information on behaviour after exit (e.g starting an other game)
+	std::string m_fileName;
+
+	KX_ExitInfo();
 };
 
 enum class KX_DebugOption
@@ -79,7 +91,7 @@ typedef struct {
 /**
  * KX_KetsjiEngine is the core game engine class.
  */
-class KX_KetsjiEngine
+class KX_KetsjiEngine : public mt::SimdClassAllocator
 {
 public:
 	enum FlagType
@@ -89,25 +101,27 @@ public:
 		SHOW_PROFILE = (1 << 0),
 		/// Show the framerate on the game display?
 		SHOW_FRAMERATE = (1 << 1),
+		/// Process and show render queries?
+		SHOW_RENDER_QUERIES = (1 << 2),
 		/// Show debug properties on the game display.
-		SHOW_DEBUG_PROPERTIES = (1 << 2),
+		SHOW_DEBUG_PROPERTIES = (1 << 3),
 		/// Whether or not to lock animation updates to the animation framerate?
-		RESTRICT_ANIMATION = (1 << 3),
+		RESTRICT_ANIMATION = (1 << 4),
 		/// Display of fixed frames?
-		FIXED_FRAMERATE = (1 << 4),
+		FIXED_FRAMERATE = (1 << 5),
 		/// BGE relies on a external clock or its own internal clock?
-		USE_EXTERNAL_CLOCK = (1 << 5),
+		USE_EXTERNAL_CLOCK = (1 << 6),
 		/// Automatic add debug properties to the debug list.
-		AUTO_ADD_DEBUG_PROPERTIES = (1 << 6),
+		AUTO_ADD_DEBUG_PROPERTIES = (1 << 7),
 		/// Use override camera?
-		CAMERA_OVERRIDE = (1 << 7)
+		CAMERA_OVERRIDE = (1 << 8)
 	};
 
 private:
-
 	struct CameraRenderData
 	{
-		CameraRenderData(KX_Camera *rendercam, KX_Camera *cullingcam, const RAS_Rect& area, const RAS_Rect& viewport, RAS_Rasterizer::StereoEye eye);
+		CameraRenderData(KX_Camera *rendercam, KX_Camera *cullingcam, const RAS_Rect& area, const RAS_Rect& viewport,
+				RAS_Rasterizer::StereoMode stereoMode, RAS_Rasterizer::StereoEye eye);
 		CameraRenderData(const CameraRenderData& other);
 		~CameraRenderData();
 
@@ -116,6 +130,7 @@ private:
 		KX_Camera *m_cullingCamera;
 		RAS_Rect m_area;
 		RAS_Rect m_viewport;
+		RAS_Rasterizer::StereoMode m_stereoMode;
 		RAS_Rasterizer::StereoEye m_eye;
 	};
 
@@ -130,18 +145,39 @@ private:
 	/// Data used to render a frame.
 	struct FrameRenderData
 	{
-		FrameRenderData(RAS_Rasterizer::FrameBufferType fbType);
+		FrameRenderData(RAS_Rasterizer::OffScreenType ofsType);
 
-		RAS_Rasterizer::FrameBufferType m_fbType;
+		RAS_Rasterizer::OffScreenType m_ofsType;
 		std::vector<SceneRenderData> m_sceneDataList;
 	};
 
+	struct RenderData
+	{
+		RenderData(RAS_Rasterizer::StereoMode stereoMode, bool renderPerEye);
+
+		RAS_Rasterizer::StereoMode m_stereoMode;
+		bool m_renderPerEye;
+		std::vector<FrameRenderData> m_frameDataList;
+	};
+
+	struct FrameTimes
+	{
+		// Number of frames to proceed.
+		int frames;
+		// Real duration of a frame.
+		double timestep;
+		// Scaled duration of a frame.
+		double framestep;
+	};
+
+	CM_Clock m_clock;
 	/// 2D Canvas (2D Rendering Device Context)
 	RAS_ICanvas *m_canvas;
 	/// 3D Rasterizer (3D Rendering)
 	RAS_Rasterizer *m_rasterizer;
-	KX_ISystem *m_kxsystem;
-	KX_BlenderConverter *m_converter;
+	/// Global debug draw, mainly used for profiling texts.
+	RAS_DebugDraw m_debugDraw;
+	BL_Converter *m_converter;
 	KX_NetworkMessageManager *m_networkMessageManager;
 #ifdef WITH_PYTHON
 	PyObject *m_pyprofiledict;
@@ -158,7 +194,7 @@ private:
 	std::vector<std::pair<std::string, std::string> >  m_replace_scenes;
 
 	/// The current list of scenes.
-	CListValue<KX_Scene> *m_scenes;
+	EXP_ListValue<KX_Scene> *m_scenes;
 
 	bool m_bInitialized;
 
@@ -168,11 +204,6 @@ private:
 	double m_frameTime;
 	/// game time for the next rendering step
 	double m_clockTime;
-	/// game time of the previous rendering step
-	double m_previousClockTime;
-	///game time when the animations were last updated
-	double m_previousAnimTime;
-	double m_remainingTime;
 	/// time scaling parameter. if > 1.0, time goes faster than real-time. If < 1.0, times goes slower than real-time.
 	double m_timescale;
 	double m_previousRealTime;
@@ -188,19 +219,14 @@ private:
 	bool m_doRender;  /* whether or not the scene should be rendered after the logic frame */
 
 	/// Key used to exit the BGE
-	short m_exitkey;
+	SCA_IInputDevice::SCA_EnumInputs m_exitKey;
 
-	KX_ExitRequest m_exitcode;
-	std::string m_exitstring;
-
-	float m_cameraZoom;
+	KX_ExitInfo m_exitInfo;
 
 	std::string m_overrideSceneName;
 	RAS_CameraData m_overrideCamData;
-	MT_Matrix4x4 m_overrideCamProjMat;
-	MT_Matrix4x4 m_overrideCamViewMat;
-	/// Default camera zoom.
-	float m_overrideCamZoom;
+	mt::mat4 m_overrideCamProjMat;
+	mt::mat4 m_overrideCamViewMat;
 
 	/// Categories for profiling display.
 	typedef enum {
@@ -220,9 +246,19 @@ private:
 
 	/// Time logger.
 	KX_TimeCategoryLogger m_logger;
-
 	/// Labels for profiling display.
 	static const std::string m_profileLabels[tc_numCategories];
+
+	enum QueryCategory {
+		QUERY_SAMPLES = 0,
+		QUERY_PRIMITIVES,
+		QUERY_TIME,
+		QUERY_MAX
+	};
+
+	std::vector<RAS_Query> m_renderQueries;
+	static const std::string m_renderQueriesLabels[QUERY_MAX];
+
 	/// Last estimated framerate
 	double m_average_framerate;
 
@@ -254,20 +290,20 @@ private:
 	void UpdateSuspendedScenes(double framestep);
 
 	/// Update and return the projection matrix of a camera depending on the viewport.
-	MT_Matrix4x4 GetCameraProjectionMatrix(KX_Scene *scene, KX_Camera *cam, RAS_Rasterizer::StereoEye eye,
-										   const RAS_Rect& viewport, const RAS_Rect& area) const;
+	mt::mat4 GetCameraProjectionMatrix(KX_Scene *scene, KX_Camera *cam, RAS_Rasterizer::StereoMode stereoMode,
+			RAS_Rasterizer::StereoEye eye, const RAS_Rect& viewport, const RAS_Rect& area) const;
 	CameraRenderData GetCameraRenderData(KX_Scene *scene, KX_Camera *camera, KX_Camera *overrideCullingCam, const RAS_Rect& displayArea,
-											  RAS_Rasterizer::StereoEye eye, bool usestereo);
+			RAS_Rasterizer::StereoMode stereoMode, RAS_Rasterizer::StereoEye eye);
 	/// Compute frame render data per eyes (in case of stereo), scenes and camera.
-	bool GetFrameRenderData(std::vector<FrameRenderData>& frameDataList);
+	RenderData GetRenderData();
 
-	/// EEVEE scene rendering
-	void RenderCamera(KX_Scene *scene, const CameraRenderData& cameraFrameData, unsigned short pass);
+	void RenderCamera(KX_Scene *scene, const CameraRenderData& cameraFrameData, RAS_OffScreen *offScreen, unsigned short pass, bool isFirstScene);
+	RAS_OffScreen *PostRenderScene(KX_Scene *scene, RAS_OffScreen *inputofs, RAS_OffScreen *targetofs);
 	void RenderDebugProperties();
 	/// Debug draw cameras frustum of a scene.
-	void DrawDebugCameraFrustum(KX_Scene *scene, RAS_DebugDraw& debugDraw, const CameraRenderData& cameraFrameData);
+	void DrawDebugCameraFrustum(KX_Scene *scene, const CameraRenderData& cameraFrameData);
 	/// Debug draw lights shadow frustum of a scene.
-	void DrawDebugShadowFrustum(KX_Scene *scene, RAS_DebugDraw& debugDraw);
+	void DrawDebugShadowFrustum(KX_Scene *scene);
 
 	/**
 	 * Processes all scheduled scene activity.
@@ -286,15 +322,13 @@ private:
 	void PostProcessScene(KX_Scene *scene);
 
 	void BeginFrame();
-	
-
-public:
-	KX_KetsjiEngine(KX_ISystem *system);
-	virtual ~KX_KetsjiEngine();
-
 	void EndFrame();
 
-	RAS_FrameBuffer *PostRenderScene(KX_Scene *scene, RAS_FrameBuffer *inputfb, RAS_FrameBuffer *targetfb);
+	FrameTimes GetFrameTimes();
+
+public:
+	KX_KetsjiEngine();
+	virtual ~KX_KetsjiEngine();
 
 	/// set the devices and stuff. the client must take care of creating these
 	void SetInputDevice(SCA_IInputDevice *inputDevice);
@@ -304,8 +338,8 @@ public:
 #ifdef WITH_PYTHON
 	PyObject *GetPyProfileDict();
 #endif
-	void SetConverter(KX_BlenderConverter *converter);
-	KX_BlenderConverter *GetConverter()
+	void SetConverter(BL_Converter *converter);
+	BL_Converter *GetConverter()
 	{
 		return m_converter;
 	}
@@ -335,18 +369,21 @@ public:
 	/// returns true if an update happened to indicate -> Render
 	bool NextFrame();
 	void Render();
+	void RenderShadowBuffers(KX_Scene *scene);
 
 	void StartEngine();
 	void StopEngine();
+	void Export(const std::string& filename);
 
-	void RequestExit(KX_ExitRequest exitrequestmode);
-	void SetNameNextGame(const std::string& nextgame);
-	KX_ExitRequest GetExitCode();
-	const std::string& GetExitString();
+	void RequestExit(KX_ExitInfo::Code code);
+	void RequestExit(KX_ExitInfo::Code code, const std::string& fileName);
 
-	CListValue<KX_Scene> *CurrentScenes();
+	const KX_ExitInfo& GetExitInfo() const;
+
+	EXP_ListValue<KX_Scene> *CurrentScenes();
 	KX_Scene *FindScene(const std::string& scenename);
 	void AddScene(KX_Scene *scene);
+	void DestructScene(KX_Scene *scene);
 	void ConvertAndAddScene(const std::string& scenename, bool overlay);
 
 	void RemoveScene(const std::string& scenename);
@@ -356,14 +393,7 @@ public:
 
 	void GetSceneViewport(KX_Scene *scene, KX_Camera *cam, const RAS_Rect& displayArea, RAS_Rect& area, RAS_Rect& viewport);
 
-	/// Sets zoom for camera objects, useful only with extend and scale framing mode.
-	void SetCameraZoom(float camzoom);
-	/// Sets zoom for default camera, = 2 in embedded mode.
-	void SetCameraOverrideZoom(float camzoom);
-	/// Get the camera zoom for the passed camera.
-	float GetCameraZoom(KX_Camera *camera) const;
-
-	void EnableCameraOverride(const std::string& forscene, const MT_Matrix4x4& projmat, const MT_Matrix4x4& viewmat, const RAS_CameraData& camdata);
+	void EnableCameraOverride(const std::string& forscene, const mt::mat4& projmat, const mt::mat4& viewmat, const RAS_CameraData& camdata);
 
 	// Update animations for object in this scene
 	void UpdateAnimations(KX_Scene *scene);
@@ -433,18 +463,17 @@ public:
 	double GetAverageFrameRate();
 
 	/**
-	 * Gets the time scale multiplier 
+	 * Gets the time scale multiplier
 	 */
 	double GetTimeScale() const;
 
 	/**
 	 * Sets the time scale multiplier
 	 */
-	void SetTimeScale(double scale);
+	void SetTimeScale(double timeScale);
 
-	void SetExitKey(short key);
-
-	short GetExitKey();
+	void SetExitKey(SCA_IInputDevice::SCA_EnumInputs key);
+	SCA_IInputDevice::SCA_EnumInputs GetExitKey() const;
 
 	/**
 	 * Activate or deactivates the render of the scene after the logic frame
@@ -477,7 +506,7 @@ public:
 	KX_DebugOption GetShowShadowFrustum() const;
 
 	KX_Scene *CreateScene(const std::string& scenename);
-	KX_Scene *CreateScene(Scene *scene, bool libloading);
+	KX_Scene *CreateScene(Scene *scene);
 
 	GlobalSettings *GetGlobalSettings(void);
 	void SetGlobalSettings(GlobalSettings *gs);

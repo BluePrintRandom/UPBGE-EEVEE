@@ -38,8 +38,8 @@
 #include "SCA_LogicManager.h"
 #include "SCA_ISensor.h"
 
-SCA_BasicEventManager::SCA_BasicEventManager(class SCA_LogicManager* logicmgr)
-	: SCA_EventManager(logicmgr, BASIC_EVENTMGR)
+SCA_BasicEventManager::SCA_BasicEventManager(class SCA_LogicManager *logicmgr)
+	:SCA_EventManager(logicmgr, BASIC_EVENTMGR)
 {
 }
 
@@ -49,10 +49,8 @@ SCA_BasicEventManager::~SCA_BasicEventManager()
 
 void SCA_BasicEventManager::NextFrame()
 {
-	SG_DList::iterator<SCA_ISensor> it(m_sensors);
-	for (it.begin();!it.end();++it)
-	{
-		(*it)->Activate(m_logicmgr);
+	for (SCA_ISensor *sensor : m_sensors) {
+		sensor->Activate(m_logicmgr);
 	}
 }
 

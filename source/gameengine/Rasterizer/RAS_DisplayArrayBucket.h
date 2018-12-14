@@ -32,44 +32,30 @@
 #ifndef __RAS_DISPLAY_MATERIAL_BUCKET_H__
 #define __RAS_DISPLAY_MATERIAL_BUCKET_H__
 
-#include "CM_RefCount.h"
+#include "CM_Update.h"
 
 #include "RAS_MeshSlot.h"
-#include "RAS_Rasterizer.h"
-
-#include "MT_Transform.h"
+#include "RAS_AttributeArray.h"
 
 #include <vector>
 
 class RAS_MaterialBucket;
-class RAS_IDisplayArray;
-class RAS_MaterialShader;
-class RAS_MeshObject;
+class RAS_DisplayArray;
+class RAS_Mesh;
 class RAS_MeshMaterial;
 class RAS_Deformer;
+class RAS_IStorageInfo;
+class RAS_InstancingBuffer;
 
 class RAS_DisplayArrayBucket
 {
 private:
-	enum NodeType {
-		NODE_DOWNWARD_NORMAL = 0,
-// 		NODE_DOWNWARD_DERIVED_MESH,
-		NODE_DOWNWARD_CUBE_MAP,
-		NODE_DOWNWARD_INSTANCING,
-		NODE_DOWNWARD_BATCHING,
-		NODE_DOWNWARD_TYPE_MAX,
-
-		NODE_UPWARD_NORMAL = 0,
-		NODE_UPWARD_NO_ARRAY,
-		NODE_UPWARD_TYPE_MAX
-	};
-
 	/// The parent bucket.
 	RAS_MaterialBucket *m_bucket;
 	/// The display array = list of vertexes and indexes.
-	RAS_IDisplayArray *m_displayArray;
+	RAS_DisplayArray *m_displayArray;
 	/// The parent mesh object, it can be nullptr for text objects.
-	RAS_MeshObject *m_mesh;
+	RAS_Mesh *m_mesh;
 	/// The material mesh.
 	RAS_MeshMaterial *m_meshMaterial;
 	/// The list of all visible mesh slots to render this frame.
@@ -77,15 +63,32 @@ private:
 	/// The deformer using this display array.
 	RAS_Deformer *m_deformer;
 
+	RAS_DisplayArrayStorage *m_arrayStorage;
+	/// Attribute array used for each different render categories.
+	RAS_AttributeArray m_attribArray;
+
+	/// The vertex buffer object containing all the data used for the instancing rendering for each drawing category.
+	std::unique_ptr<RAS_InstancingBuffer> m_instancingBuffer[RAS_Rasterizer::RAS_DRAW_MAX];
+
+	CM_UpdateClient<RAS_IMaterial> m_materialUpdateClient;
+	CM_UpdateClient<RAS_DisplayArray> m_arrayUpdateClient;
+
+	RAS_DisplayArrayNodeData m_nodeData;
+	RAS_DisplayArrayDownwardNode m_downwardNode;
+	RAS_DisplayArrayUpwardNode m_upwardNode;
+
+	RAS_DisplayArrayDownwardNode m_instancingNode;
+	RAS_DisplayArrayDownwardNode m_batchingNode;
+
 public:
-	RAS_DisplayArrayBucket(RAS_MaterialBucket *bucket, RAS_IDisplayArray *array,
-						   RAS_MeshObject *mesh, RAS_MeshMaterial *meshmat, RAS_Deformer *deformer);
+	RAS_DisplayArrayBucket(RAS_MaterialBucket *bucket, RAS_DisplayArray *array,
+						   RAS_Mesh *mesh, RAS_MeshMaterial *meshmat, RAS_Deformer *deformer);
 	~RAS_DisplayArrayBucket();
 
 	/// \section Accesor
 	RAS_MaterialBucket *GetBucket() const;
-	RAS_IDisplayArray *GetDisplayArray() const;
-	RAS_MeshObject *GetMesh() const;
+	RAS_DisplayArray *GetDisplayArray() const;
+	RAS_Mesh *GetMesh() const;
 	RAS_MeshMaterial *GetMeshMaterial() const;
 
 	/// \section Active Mesh Slots Management.
@@ -97,7 +100,16 @@ public:
 	bool UseBatching() const;
 
 	/// Update render infos.
-	void UpdateActiveMeshSlots(RAS_Rasterizer::DrawType drawingMode, RAS_MaterialShader *shader);
+	void UpdateActiveMeshSlots(RAS_Rasterizer::DrawType drawingMode, bool instancing);
+
+	void GenerateTree(RAS_MaterialDownwardNode& downwardRoot, RAS_MaterialUpwardNode& upwardRoot,
+			RAS_UpwardTreeLeafs& upwardLeafs, RAS_Rasterizer::DrawType drawingMode, bool sort, bool instancing);
+	void BindUpwardNode(const RAS_DisplayArrayNodeTuple& tuple);
+	void UnbindUpwardNode(const RAS_DisplayArrayNodeTuple& tuple);
+	void RunDownwardNode(const RAS_DisplayArrayNodeTuple& tuple);
+	void RunDownwardNodeNoArray(const RAS_DisplayArrayNodeTuple& tuple);
+	void RunInstancingNode(const RAS_DisplayArrayNodeTuple& tuple);
+	void RunBatchingNode(const RAS_DisplayArrayNodeTuple& tuple);
 
 	/// Replace the material bucket of this display array bucket by the one given.
 	void ChangeMaterialBucket(RAS_MaterialBucket *bucket);

@@ -19,8 +19,6 @@
 #include "CcdPhysicsEnvironment.h"
 #include "CcdGraphicController.h"
 #include "btBulletDynamicsCommon.h"
-#include "MT_Vector3.h"
-
 
 CcdGraphicController::CcdGraphicController(CcdPhysicsEnvironment *phyEnv, PHY_IMotionState *motionState)
 	:m_localAabbMin(0.0f, 0.0f, 0.0f),
@@ -34,11 +32,13 @@ CcdGraphicController::CcdGraphicController(CcdPhysicsEnvironment *phyEnv, PHY_IM
 
 CcdGraphicController::~CcdGraphicController()
 {
-	if (m_phyEnv)
+	if (m_phyEnv) {
 		m_phyEnv->RemoveCcdGraphicController(this);
+	}
 
-	if (m_motionState)
+	if (m_motionState) {
 		delete m_motionState;
+	}
 }
 
 void CcdGraphicController::SetLocalAabb(const btVector3& aabbMin, const btVector3& aabbMax)
@@ -48,7 +48,7 @@ void CcdGraphicController::SetLocalAabb(const btVector3& aabbMin, const btVector
 	SetGraphicTransform();
 }
 
-void CcdGraphicController::SetLocalAabb(const MT_Vector3& aabbMin, const MT_Vector3& aabbMax)
+void CcdGraphicController::SetLocalAabb(const mt::vec3& aabbMin, const mt::vec3& aabbMax)
 {
 	m_localAabbMin = ToBullet(aabbMin);
 	m_localAabbMax = ToBullet(aabbMax);
@@ -85,8 +85,9 @@ void CcdGraphicController::GetAabb(btVector3& aabbMin, btVector3& aabbMax)
 
 bool CcdGraphicController::SetGraphicTransform()
 {
-	if (!m_handle)
+	if (!m_handle) {
 		return false;
+	}
 	btVector3 aabbMin;
 	btVector3 aabbMax;
 	GetAabb(aabbMin, aabbMax);
@@ -124,8 +125,10 @@ void CcdGraphicController::SetPhysicsEnvironment(class PHY_IPhysicsEnvironment *
 
 void CcdGraphicController::Activate(bool active)
 {
-	if (active)
+	if (active) {
 		m_phyEnv->AddCcdGraphicController(this);
-	else
+	}
+	else {
 		m_phyEnv->RemoveCcdGraphicController(this);
+	}
 }

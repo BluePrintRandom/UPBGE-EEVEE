@@ -36,7 +36,7 @@
 #include "SCA_ISensor.h"
 #include "EXP_ListValue.h"
 
-class PHY_CollData;
+class PHY_ICollData;
 
 #include "KX_ClientObjectInfo.h"
 
@@ -72,7 +72,7 @@ protected:
 	uint_ptr m_bLastColliderHash;
 
 	SCA_IObject *m_hitObject;
-	CListValue<KX_GameObject> *m_colliders;
+	EXP_ListValue<KX_GameObject> *m_colliders;
 	std::string m_hitMaterial;
 
 public:
@@ -83,7 +83,7 @@ public:
 	                   const std::string& touchedpropname);
 	virtual ~KX_CollisionSensor();
 
-	virtual CValue *GetReplica();
+	virtual EXP_Value *GetReplica();
 	virtual void ProcessReplica();
 	virtual void SynchronizeTransform();
 	virtual bool Evaluate();
@@ -94,16 +94,16 @@ public:
 	virtual void UnregisterSumo(KX_CollisionEventManager *collisionman);
 	virtual void UnregisterToManager();
 
-	virtual bool NewHandleCollision(void *obj1, void *obj2, const PHY_CollData *colldata);
+	virtual bool NewHandleCollision(PHY_IPhysicsController *ctrl1, PHY_IPhysicsController *ctrl2, const PHY_ICollData *colldata);
 
 	// Allows to do pre-filtering and save computation time
 	// obj1 = sensor physical controller, obj2 = physical controller of second object
 	// return value = true if collision should be checked on pair of object
-	virtual bool BroadPhaseFilterCollision(void *obj1, void *obj2)
+	virtual bool BroadPhaseFilterCollision(PHY_IPhysicsController *ctrl1, PHY_IPhysicsController *ctrl2)
 	{
 		return true;
 	}
-	virtual bool BroadPhaseSensorFilterCollision(void *obj1, void *obj2);
+	virtual bool BroadPhaseSensorFilterCollision(PHY_IPhysicsController *ctrl1, PHY_IPhysicsController *ctrl2);
 	virtual sensortype GetSensorType()
 	{
 		return ST_TOUCH;
@@ -133,8 +133,8 @@ public:
 	/* Python interface ---------------------------------------------------- */
 	/* --------------------------------------------------------------------- */
 
-	static PyObject *pyattr_get_object_hit(PyObjectPlus *self_v, const KX_PYATTRIBUTE_DEF *attrdef);
-	static PyObject *pyattr_get_object_hit_list(PyObjectPlus *self_v, const KX_PYATTRIBUTE_DEF *attrdef);
+	static PyObject *pyattr_get_object_hit(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef);
+	static PyObject *pyattr_get_object_hit_list(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef);
 
 #endif
 
