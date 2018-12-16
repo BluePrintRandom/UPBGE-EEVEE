@@ -137,6 +137,9 @@ KX_GameObject::KX_GameObject(void *sgReplicationInfo,
 	m_components(nullptr),
 	m_instanceObjects(nullptr),
 	m_dupliGroupObject(nullptr),
+	m_castShadows(true), //eevee
+	m_isReplica(false), //eevee
+	m_backupMesh(nullptr), //eevee
 	m_actionManager(nullptr)
 #ifdef WITH_PYTHON
 	, m_attr_dict(nullptr),
@@ -171,6 +174,9 @@ KX_GameObject::KX_GameObject(const KX_GameObject& other)
 	m_components(nullptr),
 	m_instanceObjects(nullptr),
 	m_dupliGroupObject(nullptr),
+	m_castShadows(true), //eevee
+	m_isReplica(false), //eevee
+	m_backupMesh(nullptr), //eevee
 	m_actionManager(nullptr)
 #ifdef WITH_PYTHON
 	, m_attr_dict(other.m_attr_dict),

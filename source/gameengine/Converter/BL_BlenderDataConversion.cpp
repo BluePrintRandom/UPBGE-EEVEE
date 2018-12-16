@@ -992,7 +992,7 @@ static KX_GameObject *BL_GameObjectFromBlenderObject(Object *ob, KX_Scene *kxsce
 			if (ob->gameflag & OB_NAVMESH) {
 				gameobj = new KX_NavMeshObject(kxscene, KX_Scene::m_callbacks);
 				gameobj->AddMesh(meshobj);
-				gameobj->SetBackupMesh(mesh); //eevee: We want to restore original mesh at ge exit so we do a backup of original mesh
+				//gameobj->SetBackupMesh(mesh); //eevee: We want to restore original mesh at ge exit so we do a backup of original mesh
 				break;
 			}
 
@@ -1012,7 +1012,7 @@ static KX_GameObject *BL_GameObjectFromBlenderObject(Object *ob, KX_Scene *kxsce
 
 			gameobj->SetOccluder((ob->gameflag & OB_OCCLUDER) != 0, false);
 			gameobj->SetActivityCullingInfo(activityCullingInfoFromBlenderObject(ob));
-			gameobj->SetBackupMesh(mesh); //eevee: We want to restore original mesh at ge exit so we do a backup of original mesh
+			//gameobj->SetBackupMesh(mesh); //eevee: We want to restore original mesh at ge exit so we do a backup of original mesh
 			break;
 		}
 
