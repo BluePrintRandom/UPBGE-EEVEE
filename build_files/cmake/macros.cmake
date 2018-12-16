@@ -695,7 +695,6 @@ function(SETUP_BLENDER_SORTED_LIBS)
 		bf_intern_ctr
 		bf_intern_utfconv
 		bf_intern_smoke
-		bf_intern_moto
 		bf_intern_opencolorio
 		bf_intern_gawain
 		bf_intern_eigen
@@ -705,7 +704,6 @@ function(SETUP_BLENDER_SORTED_LIBS)
 		extern_lzma
 		extern_curve_fit_nd
 		extern_recastnavigation
-		bf_intern_moto
 		extern_openjpeg
 		extern_rangetree
 		extern_wcwidth
