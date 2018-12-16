@@ -105,7 +105,7 @@ LA_Launcher::LA_Launcher(GHOST_ISystem *system, Main *maggie, Scene *scene, Glob
 #ifdef WITH_PYTHON
 	m_globalDict(nullptr),
 #endif  // WITH_PYTHON
-	m_alwaysUseExpandFraming(alwaysUseExpandFraming),
+	m_alwaysUseExpandFraming(true/*alwaysUseExpandFraming*/), //UPBGE-EEVEE TODO: use m_alwaysUseExpandFraming = True to have the window created at the good size.
 	m_camZoom(1.0f),
 	m_samples(samples),
 	m_stereoMode(stereoMode),

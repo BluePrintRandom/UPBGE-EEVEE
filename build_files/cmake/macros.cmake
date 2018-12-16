@@ -704,7 +704,6 @@ function(SETUP_BLENDER_SORTED_LIBS)
 		extern_lzma
 		extern_curve_fit_nd
 		extern_recastnavigation
-		extern_openjpeg
 		extern_rangetree
 		extern_wcwidth
 		extern_sdlew
@@ -798,7 +797,6 @@ function(SETUP_BLENDER_SORTED_LIBS)
 
 	if(WITH_BULLET AND NOT WITH_SYSTEM_BULLET)
 		list_insert_after(BLENDER_SORTED_LIBS "ge_logic_network" "extern_bullet")
-		list_insert_after(BLENDER_SORTED_LIBS "extern_openjpeg" "extern_bullet")
 	endif()
 
 	if(WITH_GAMEENGINE_DECKLINK)

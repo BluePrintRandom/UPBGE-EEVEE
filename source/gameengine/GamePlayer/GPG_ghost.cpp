@@ -58,7 +58,6 @@ extern "C"
 
 #  include "BKE_appdir.h"
 #  include "BKE_blender.h"
-#  include "BKE_depsgraph.h"
 #  include "BKE_global.h"
 #  include "BKE_icons.h"
 #  include "BKE_image.h"
@@ -73,6 +72,9 @@ extern "C"
 
 #  include "IMB_imbuf.h"
 #  include "IMB_moviecache.h"
+
+#  include "DEG_depsgraph.h"
+#  include "DRW_engine.h"
 
 #  ifdef __APPLE__
 int GHOST_HACK_getFirstFile(char buf[]);
@@ -572,7 +574,7 @@ static BlendFileData *load_game_data(const char *progname, char *filename = null
 		}
 	}
 	else {
-		bfd = BLO_read_from_file(progname, &reports, BLO_READ_SKIP_NONE);
+		bfd = BLO_read_from_file(progname, BLO_READ_SKIP_NONE, &reports);
 	}
 
 	if (!bfd && filename) {
@@ -609,7 +611,7 @@ static BlendFileData *load_encrypted_game_data(const char *filename, std::string
 	}
 
 	if (fileData) {
-		bfd = BLO_read_from_memory(fileData, fileSize, &reports, BLO_READ_SKIP_USERDEF);
+		bfd = BLO_read_from_memory(fileData, fileSize, BLO_READ_SKIP_USERDEF, &reports);
 		delete[] fileData;
 	}
 
@@ -887,7 +889,7 @@ int main(int argc,
 	IMB_init();
 	BKE_images_init();
 	BKE_modifier_init();
-	DAG_init();
+	DEG_register_node_types();
 
 #ifdef WITH_FFMPEG
 	IMB_ffmpeg_init();
@@ -1515,7 +1517,11 @@ int main(int argc,
 								}
 							}
 
+							G.background = true;
+							DRW_opengl_context_create();
+							G.background = false;
 							GPU_init();
+							GPU_immActivate();
 
 							if (SYS_GetCommandLineInt(syshandle, "nomipmap", 0)) {
 								GPU_set_mipmap(G.main, 0);
@@ -1534,7 +1540,9 @@ int main(int argc,
 						launcher.SetPythonGlobalDict(globalDict);
 #endif  // WITH_PYTHON
 
+						DRW_engines_register();
 						launcher.InitEngine();
+						
 
 						// Enter main loop
 						exitInfo = launcher.EngineMainLoop();
@@ -1542,6 +1550,7 @@ int main(int argc,
 						gs = *launcher.GetGlobalSettings();
 
 						launcher.ExitEngine();
+						DRW_engines_free();
 
 						BLO_blendfiledata_free(bfd);
 						/* G.main == bfd->main, it gets referenced in free_nodesystem so we can't have a dangling pointer */
@@ -1550,7 +1559,9 @@ int main(int argc,
 				} while (ELEM(exitInfo.m_code, KX_ExitInfo::RESTART_GAME, KX_ExitInfo::START_OTHER_GAME));
 			}
 
+			GPU_immDeactivate();
 			GPU_exit();
+			DRW_opengl_context_destroy();
 
 #ifdef WITH_PYTHON
 			PyDict_Clear(globalDict);
@@ -1597,7 +1608,7 @@ int main(int argc,
 
 	IMB_exit();
 	BKE_images_exit();
-	DAG_exit();
+	DEG_free_node_types();
 	IMB_moviecache_destruct();
 
 	SYS_DeleteSystem(syshandle);

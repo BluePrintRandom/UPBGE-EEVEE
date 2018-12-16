@@ -145,8 +145,7 @@ endif()
 		bf_intern_itasc
 		bf_intern_iksolver
 		bf_intern_smoke
-		bf_modifiers
-		bf_intern_moto 
+		bf_modifiers 
 		bf_nodes
 		bf_gpu
 		bf_intern_gawain
@@ -159,7 +158,6 @@ endif()
 		bf_imbuf_cineon
 		bf_imbuf_openexr
 		bf_imbuf_openimageio
-		extern_openjpeg
 		bf_imbuf_dds
 		bf_dna
 		ge_videotex
@@ -179,7 +177,6 @@ endif()
 		bf_intern_itasc
 		bf_intern_iksolver
 		bf_intern_smoke
-		bf_intern_moto
 		bf_intern_guardedalloc
 		bf_intern_memutil
 		bf_intern_utfconv
@@ -196,7 +193,6 @@ endif()
 		bf_intern_libmv
 
 		extern_bullet
-		extern_openjpeg
 		extern_binreloc
 		extern_minilzo
 		extern_recastnavigation
