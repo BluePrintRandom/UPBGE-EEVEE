@@ -110,7 +110,6 @@ protected:
 	bool m_castShadows;
 	bool m_isReplica;
 	Mesh *m_backupMesh;
-	Object *m_pBlenderObject;
 	/* End of EEVEE INTEGRATION */
 
 	KX_ClientObjectInfo m_clientInfo;
@@ -163,6 +162,7 @@ public:
 	void SetBackupMesh(Mesh *me);
 	void RestoreOriginalMesh();
 	void SetBlenderObject(Object *ob);
+	void SetBackupObmat(Object *ob);
 
 	/* END OF EEVEE INTEGRATION */
 

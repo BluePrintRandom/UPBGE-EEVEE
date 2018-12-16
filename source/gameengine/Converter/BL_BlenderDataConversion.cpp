@@ -992,6 +992,7 @@ static KX_GameObject *BL_GameObjectFromBlenderObject(Object *ob, KX_Scene *kxsce
 			if (ob->gameflag & OB_NAVMESH) {
 				gameobj = new KX_NavMeshObject(kxscene, KX_Scene::m_callbacks);
 				gameobj->AddMesh(meshobj);
+				gameobj->SetBackupMesh(mesh); //eevee: We want to restore original mesh at ge exit so we do a backup of original mesh
 				break;
 			}
 
@@ -1011,6 +1012,7 @@ static KX_GameObject *BL_GameObjectFromBlenderObject(Object *ob, KX_Scene *kxsce
 
 			gameobj->SetOccluder((ob->gameflag & OB_OCCLUDER) != 0, false);
 			gameobj->SetActivityCullingInfo(activityCullingInfoFromBlenderObject(ob));
+			gameobj->SetBackupMesh(mesh); //eevee: We want to restore original mesh at ge exit so we do a backup of original mesh
 			break;
 		}
 
@@ -1039,6 +1041,16 @@ static KX_GameObject *BL_GameObjectFromBlenderObject(Object *ob, KX_Scene *kxsce
 			break;
 		}
 
+		case OB_LIGHTPROBE:
+		{
+			gameobj = new KX_EmptyObject(kxscene, KX_Scene::m_callbacks); //eevee: We convert lightprobes as empties to be able to move it with game logic
+		}
+
+		//case OB_MBALL: // Not tested yet
+		//{
+		//	gameobj = new KX_EmptyObject(kxscene, KX_Scene::m_callbacks); //eevee: We convert metaballs as empties to be able to move it with game logic
+		//}
+
 #ifdef THREADED_DAG_WORKAROUND
 		case OB_CURVE:
 		{
@@ -1058,6 +1070,9 @@ static KX_GameObject *BL_GameObjectFromBlenderObject(Object *ob, KX_Scene *kxsce
 		gameobj->SetLayer(ob->lay);
 		BL_ConvertObjectInfo *info = converter.GetObjectInfo(ob);
 		gameobj->SetConvertObjectInfo(info);
+
+		gameobj->SetBackupObmat(ob); // eevee: We want to restore original object obmat at ge exit so we do a backup
+
 		gameobj->SetObjectColor(mt::vec4(ob->col));
 		// Set the visibility state based on the objects render option in the outliner.
 		if (ob->restrictflag & OB_RESTRICT_RENDER) {

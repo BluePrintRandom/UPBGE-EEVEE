@@ -146,6 +146,8 @@ KX_GameObject::KX_GameObject(void *sgReplicationInfo,
 	// define the relationship between this node and it's parent.
 	KX_NormalParentRelation *parent_relation = new KX_NormalParentRelation();
 	m_sgNode->SetParentRelation(parent_relation);
+
+	unit_m4(m_prevObmat); //eevee
 }
 
 KX_GameObject::KX_GameObject(const KX_GameObject& other)
@@ -194,6 +196,8 @@ KX_GameObject::KX_GameObject(const KX_GameObject& other)
 		}*/
 	}
 #endif  // WITH_PYTHON
+
+	unit_m4(m_prevObmat); //eevee
 }
 
 KX_GameObject::~KX_GameObject()
@@ -216,6 +220,29 @@ KX_GameObject::~KX_GameObject()
 	}
 #endif // WITH_PYTHON
 
+	/* EEVEE INTEGRATION */
+
+	Object *ob = GetBlenderObject();
+
+	if (ob) {
+		copy_m4_m4(ob->obmat, m_savedObmat);
+		DEG_id_tag_update(&ob->id, ID_RECALC_COPY_ON_WRITE);
+	}
+
+	KX_Scene *scene = GetScene();
+
+	RemoveReplicaObject(); // in the case the Object is a relica, we delete it
+
+	if (scene->m_isRuntime) {
+		//HideOriginalObject(); // if the Object is not a replica we hide it
+	}
+	else { // at scene exit
+		//UnHideOriginalObject();
+		//RestoreOriginalMesh(); // we restore original mesh in the case we modified it during runtime // Don't know why it is crashing but not used for now
+	}
+
+	/* END OF EEVEE INTEGRATION */
+
 	RemoveMeshes();
 
 	if (m_dupliGroupObject) {
@@ -231,10 +258,11 @@ KX_GameObject::~KX_GameObject()
 }
 
 /************************EEVEE_INTEGRATION**********************/
-void KX_GameObject::SetBlenderObject(Object *ob)
+void KX_GameObject::SetBackupObmat(Object *ob)
 {
-	m_pBlenderObject = ob;
+	copy_m4_m4(m_savedObmat, ob->obmat);
 }
+
 void KX_GameObject::TagForUpdate()
 {
 	float obmat[4][4];
@@ -276,7 +304,7 @@ void KX_GameObject::ReplicateBlenderObject()
 		BKE_collection_object_add_from(bmain, scene, BKE_view_layer_camera_find(view_layer), newob); //add replica where is the active camera
 		newob->base_flag |= BASE_VISIBLE;
 		DEG_relations_tag_update(bmain);
-		m_pBlenderObject = newob;
+		SetBlenderObject(newob);
 		m_isReplica = true;
 	}
 }
@@ -291,8 +319,10 @@ void KX_GameObject::RemoveReplicaObject()
 }
 void KX_GameObject::SetBackupMesh(Mesh *me)
 {
-	Main *bmain = KX_GetActiveEngine()->GetConverter()->GetMain();
-	m_backupMesh = BKE_mesh_copy(bmain, me);
+	if (me) {
+		Main *bmain = KX_GetActiveEngine()->GetConverter()->GetMain();
+		m_backupMesh = BKE_mesh_copy(bmain, me);
+	}
 }
 void KX_GameObject::RestoreOriginalMesh()
 {
@@ -1472,6 +1502,13 @@ Object *KX_GameObject::GetBlenderObject() const
 {
 	// Non converted objects has default camera doesn't have convert info.
 	return (m_convertInfo) ? m_convertInfo->m_blenderObject : nullptr;
+}
+
+void KX_GameObject::SetBlenderObject(Object *ob)
+{
+	if (m_convertInfo->m_blenderObject) {
+		m_convertInfo->m_blenderObject = ob;
+	}
 }
 
 BL_ConvertObjectInfo *KX_GameObject::GetConvertObjectInfo() const
