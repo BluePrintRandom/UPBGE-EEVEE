@@ -35,6 +35,9 @@
 
 extern "C" {
 #  include "BLF_api.h"
+#  include "../draw/intern/DRW_render.h"
+#  include "GPU_immediate.h"
+#  include "GPU_matrix.h"
 }
 
 template<class Item>
@@ -203,40 +206,40 @@ void RAS_OpenGLDebugDraw::Flush(RAS_Rasterizer *rasty, RAS_ICanvas *canvas, RAS_
 	rasty->SetAlphaBlend(GPU_BLEND_ALPHA);
 	rasty->DisableLights();
 
-	// draw lines
-	const std::vector<RAS_DebugDraw::Line>& lines = debugDraw->m_lines;
-	const unsigned int numlines = lines.size();
-	if (numlines > 0) {
-		updateVbo(m_vbos[LINES_VBO], lines);
+	//// draw lines
+	//const std::vector<RAS_DebugDraw::Line>& lines = debugDraw->m_lines;
+	//const unsigned int numlines = lines.size();
+	//if (numlines > 0) {
+	//	updateVbo(m_vbos[LINES_VBO], lines);
 
-		glBindVertexArray(m_vaos[LINES_VAO]);
-		GPU_shader_bind(m_colorShader);
-		glDrawArrays(GL_LINES, 0, numlines * 2);
-	}
+	//	glBindVertexArray(m_vaos[LINES_VAO]);
+	//	GPU_shader_bind(m_colorShader);
+	//	glDrawArrays(GL_LINES, 0, numlines * 2);
+	//}
 
-	const std::vector<RAS_DebugDraw::Frustum>& frustums = debugDraw->m_frustums;
-	const unsigned int numfrustums = frustums.size();
-	if (numfrustums > 0) {
-		updateVbo(m_vbos[FRUSTUMS_VBO], frustums);
+	//const std::vector<RAS_DebugDraw::Frustum>& frustums = debugDraw->m_frustums;
+	//const unsigned int numfrustums = frustums.size();
+	//if (numfrustums > 0) {
+	//	updateVbo(m_vbos[FRUSTUMS_VBO], frustums);
 
-		glBindVertexArray(m_vaos[FRUSTUMS_LINE_VAO]);
-		GPU_shader_bind(m_frustumLineShader);
-		glDrawElementsInstancedARB(GL_LINES, 24, GL_UNSIGNED_BYTE, nullptr, numfrustums);
+	//	glBindVertexArray(m_vaos[FRUSTUMS_LINE_VAO]);
+	//	GPU_shader_bind(m_frustumLineShader);
+	//	glDrawElementsInstancedARB(GL_LINES, 24, GL_UNSIGNED_BYTE, nullptr, numfrustums);
 
-		glBindVertexArray(m_vaos[FRUSTUMS_SOLID_VAO]);
-		GPU_shader_bind(m_frustumSolidShader);
-		glDrawElementsInstancedARB(GL_TRIANGLES, 36, GL_UNSIGNED_BYTE, (const void *)(sizeof(GLubyte) * 24), numfrustums);
-	}
+	//	glBindVertexArray(m_vaos[FRUSTUMS_SOLID_VAO]);
+	//	GPU_shader_bind(m_frustumSolidShader);
+	//	glDrawElementsInstancedARB(GL_TRIANGLES, 36, GL_UNSIGNED_BYTE, (const void *)(sizeof(GLubyte) * 24), numfrustums);
+	//}
 
-	const std::vector<RAS_DebugDraw::Aabb>& aabbs = debugDraw->m_aabbs;
-	const unsigned int numaabbs = aabbs.size();
-	if (numaabbs > 0) {
-		updateVbo(m_vbos[AABB_VBO], aabbs);
+	//const std::vector<RAS_DebugDraw::Aabb>& aabbs = debugDraw->m_aabbs;
+	//const unsigned int numaabbs = aabbs.size();
+	//if (numaabbs > 0) {
+	//	updateVbo(m_vbos[AABB_VBO], aabbs);
 
-		glBindVertexArray(m_vaos[AABB_VAO]);
-		GPU_shader_bind(m_frustumLineShader);
-		glDrawElementsInstancedARB(GL_LINES, 24, GL_UNSIGNED_BYTE, nullptr, numaabbs);
-	}
+	//	glBindVertexArray(m_vaos[AABB_VAO]);
+	//	GPU_shader_bind(m_frustumLineShader);
+	//	glDrawElementsInstancedARB(GL_LINES, 24, GL_UNSIGNED_BYTE, nullptr, numaabbs);
+	//}
 
 	const unsigned int width = canvas->GetWidth();
 	const unsigned int height = canvas->GetHeight();
@@ -244,14 +247,14 @@ void RAS_OpenGLDebugDraw::Flush(RAS_Rasterizer *rasty, RAS_ICanvas *canvas, RAS_
 	rasty->Disable(RAS_Rasterizer::RAS_DEPTH_TEST);
 	rasty->DisableForText();
 
-	rasty->PushMatrix();
-	rasty->LoadIdentity();
+	//rasty->PushMatrix();
+	//rasty->LoadIdentity();
 
-	rasty->SetMatrixMode(RAS_Rasterizer::RAS_PROJECTION);
-	rasty->PushMatrix();
-	rasty->LoadIdentity();
+	//rasty->SetMatrixMode(RAS_Rasterizer::RAS_PROJECTION);
+	//rasty->PushMatrix();
+	//rasty->LoadIdentity();
 
-	glOrtho(0, width, height, 0, -100, 100);
+	/*glOrtho(0, width, height, 0, -100, 100);
 
 	const std::vector<RAS_DebugDraw::Box2d>& boxes2d = debugDraw->m_boxes2d;
 	const unsigned int numboxes = boxes2d.size();
@@ -287,10 +290,58 @@ void RAS_OpenGLDebugDraw::Flush(RAS_Rasterizer *rasty, RAS_ICanvas *canvas, RAS_
 		BLF_position(blf_mono_font, xco, yco, 0.0f);
 		BLF_draw(blf_mono_font, text.c_str(), text.size());
 	}
+	BLF_disable(blf_mono_font, BLF_SHADOW);*/
+
+	DRW_state_reset();
+
+	GPU_matrix_push();
+	GPU_matrix_push_projection();
+	GPU_matrix_identity_set();
+	GPU_matrix_identity_projection_set();
+
+	GPU_matrix_ortho_set(0, width, 0, height, -100, 100);
+
+	GPUVertFormat *format = immVertexFormat();
+	unsigned int pos = GPU_vertformat_attr_add(format, "pos", GPU_COMP_F32, 2, GPU_FETCH_FLOAT);
+
+	immBindBuiltinProgram(GPU_SHADER_2D_UNIFORM_COLOR);
+	for (const RAS_DebugDraw::Box2d& box2d : debugDraw->m_boxes2d) {
+		const float xco = box2d.m_pos[0];
+		const float yco = height - box2d.m_pos[1];
+		const float xsize = box2d.m_size[0];
+		const float ysize = box2d.m_size[1];
+
+		immUniformColor4fv(box2d.m_color);
+		immRectf(pos, xco + 1 + xsize, yco + ysize, xco, yco);
+	}
+	immUnbindProgram();
+
+	BLF_size(blf_mono_font, 11, 72);
+
+	BLF_enable(blf_mono_font, BLF_SHADOW);
+
+	static float black[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+	BLF_shadow(blf_mono_font, 1, black);
+	BLF_shadow_offset(blf_mono_font, 1, 1);
+
+	for (const RAS_DebugDraw::Text2d& text2d : debugDraw->m_texts2d) {
+		std::string text = text2d.m_text;
+		const float xco = text2d.m_pos[0];
+		const float yco = height - text2d.m_pos[1];
+
+		BLF_color4fv(blf_mono_font, text2d.m_color);
+		BLF_position(blf_mono_font, xco, yco, 0.0f);
+		BLF_draw(blf_mono_font, text.c_str(), text.size());
+	}
 	BLF_disable(blf_mono_font, BLF_SHADOW);
 
-	rasty->PopMatrix();
-	rasty->SetMatrixMode(RAS_Rasterizer::RAS_MODELVIEW);
+	rasty->Enable(RAS_Rasterizer::RAS_DEPTH_TEST);
 
-	rasty->PopMatrix();
+	GPU_matrix_pop();
+	GPU_matrix_pop_projection();
+
+	//rasty->PopMatrix();
+	//rasty->SetMatrixMode(RAS_Rasterizer::RAS_MODELVIEW);
+
+	//rasty->PopMatrix();
 }

@@ -39,8 +39,11 @@ set(INC
 	../../../blender/blenfont
 	../../../blender/blenkernel
 	../../../blender/blenlib
+	../../../blender/blentranslation
 	../../../blender/gpu
 	../../../blender/makesdna
+	../../../blender/makesrna
+	../../../blender/render/extern/include
 	../../../../intern/glew-mx
 	../../../../intern/guardedalloc
 )

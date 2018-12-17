@@ -1226,11 +1226,11 @@ void KX_KetsjiEngine::RenderDebugProperties()
 		const unsigned short propsMax = (m_canvas->GetHeight() - ycoord) / const_ysize;
 
 		for (KX_Scene *scene : m_scenes) {
-			//scene->RenderDebugProperties(m_debugDraw, const_xindent, const_ysize, xcoord, ycoord, propsMax);
+			scene->RenderDebugProperties(m_debugDraw, const_xindent, const_ysize, xcoord, ycoord, propsMax);
 		}
 	}
 
-	//m_debugDraw.Flush(m_rasterizer, m_canvas);
+	m_debugDraw.Flush(m_rasterizer, m_canvas);
 }
 
 void KX_KetsjiEngine::DrawDebugCameraFrustum(KX_Scene *scene, const CameraRenderData& cameraFrameData)
