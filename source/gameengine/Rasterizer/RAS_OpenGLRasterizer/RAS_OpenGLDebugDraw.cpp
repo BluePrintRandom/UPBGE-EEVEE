@@ -335,7 +335,7 @@ void RAS_OpenGLDebugDraw::Flush(RAS_Rasterizer *rasty, RAS_ICanvas *canvas, RAS_
 	}
 	BLF_disable(blf_mono_font, BLF_SHADOW);
 
-	rasty->Enable(RAS_Rasterizer::RAS_DEPTH_TEST);
+	//rasty->Enable(RAS_Rasterizer::RAS_DEPTH_TEST);
 
 	GPU_matrix_pop();
 	GPU_matrix_pop_projection();
