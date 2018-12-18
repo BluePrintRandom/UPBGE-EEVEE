@@ -1184,7 +1184,7 @@ void KX_KetsjiEngine::RenderDebugProperties()
 			m_debugDraw.RenderText2d(debugtxt, mt::vec2(xcoord + const_xindent + profile_indent, ycoord), white);
 
 			const mt::vec2 boxSize(50 * (time / tottime), 9);
-			m_debugDraw.RenderBox2d(mt::vec2(xcoord + (int)(2.2 * profile_indent), ycoord), boxSize, white);
+			m_debugDraw.RenderBox2d(mt::vec2(xcoord + (int)(2.2 * profile_indent), ycoord - 8), boxSize, white);
 			ycoord += const_ysize;
 		}
 	}
