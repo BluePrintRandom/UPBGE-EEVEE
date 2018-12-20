@@ -123,6 +123,21 @@ typedef struct LodLevel {
 	int obhysteresis;
 } LodLevel;
 
+typedef struct ObjectActivityCulling {
+	/* For game engine, values around active camera where physics or logic are suspended */
+	float physicsRadius;
+	float logicRadius;
+
+	int flags;
+	int pad;
+} ObjectActivityCulling;
+
+/* object activity flags */
+enum {
+	OB_ACTIVITY_PHYSICS = (1 << 0),
+	OB_ACTIVITY_LOGIC = (1 << 1),
+};
+
 typedef struct ObjectDisplay {
 	int flag;
 } ObjectDisplay;
@@ -279,8 +294,10 @@ typedef struct Object {
 	float step_height;
 	float jump_speed;
 	float fall_speed;
+	float max_slope;
+	int pad55;
 	unsigned char max_jumps;
-	char pad2;
+	char pad2[3];
 
 	/* Depsgraph */
 	short base_flag; /* used by depsgraph, flushed from base */
@@ -297,7 +314,7 @@ typedef struct Object {
 	short dtx;			/* viewport draw extra settings */
 	char dt;			/* viewport draw type */
 	char empty_drawtype;
-	char pad52[6];
+	char pad52[4];
 	float empty_drawsize;
 	float dupfacesca;	/* dupliface scale */
 	
@@ -305,6 +322,8 @@ typedef struct Object {
 	ListBase sensors;		/* game logic sensors */
 	ListBase controllers;	/* game logic controllers */
 	ListBase actuators;		/* game logic actuators */
+
+	struct ObjectActivityCulling activityCulling;
 
 	float sf; /* sf is time-offset */
 
@@ -378,6 +397,8 @@ typedef struct Object {
 	/* Object Display */
 	struct ObjectDisplay display;
 	int pad9;
+
+	struct Mesh *gamePredefinedBound;
 } Object;
 
 /* Warning, this is not used anymore because hooks are now modifiers */
