@@ -2189,6 +2189,7 @@ PyAttributeDef KX_GameObject::Attributes[] = {
 	//EXP_PYATTRIBUTE_RO_FUNCTION("components", KX_GameObject, pyattr_get_components),
 	EXP_PYATTRIBUTE_RW_FUNCTION("debugRecursive",   KX_GameObject, pyattr_get_debugRecursive, pyattr_set_debugRecursive),
 	EXP_PYATTRIBUTE_RW_FUNCTION("gravity", KX_GameObject, pyattr_get_gravity, pyattr_set_gravity),
+	EXP_PYATTRIBUTE_BOOL_RW("castShadows", KX_GameObject, m_castShadows),
 
 	/* experimental, don't rely on these yet */
 	EXP_PYATTRIBUTE_RO_FUNCTION("sensors",      KX_GameObject, pyattr_get_sensors),
