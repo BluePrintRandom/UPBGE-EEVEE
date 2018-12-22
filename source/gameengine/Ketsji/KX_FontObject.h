@@ -70,6 +70,9 @@ public:
 	/// Return text dimensions in blender unit.
 	const mt::vec2 GetTextDimensions();
 
+
+	void UpdateCurveText(std::string text); //eevee
+
 protected:
 	std::string m_text;
 	std::vector<std::string> m_texts;
@@ -80,6 +83,8 @@ protected:
 	float m_resolution;
 	float m_line_spacing;
 	mt::vec3 m_offset;
+
+	std::string m_backupText; //eevee
 
 	/// Text bounding box for mesh/text user.
 	RAS_BoundingBox *m_boundingBox;

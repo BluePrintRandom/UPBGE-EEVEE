@@ -53,11 +53,15 @@
 
 extern "C" {
 #include "BLF_api.h"
+#include "depsgraph/DEG_depsgraph.h"
+#include "MEM_guardedalloc.h"
 }
 
 #include "CM_Message.h"
 
 #define BGE_FONT_RES 100
+
+#define MAX_BGE_TEXT_LEN 1024 //eevee
 
 /* proptotype */
 int GetFontId(VFont *font);
@@ -102,12 +106,16 @@ KX_FontObject::KX_FontObject(void *sgReplicationInfo,
 	m_boundingBox = new RAS_BoundingBox(boundingBoxManager);
 
 	SetText(text->str);
+
+	m_backupText = std::string(text->str); //eevee
 }
 
 KX_FontObject::~KX_FontObject()
 {
 	//remove font from the scene list
 	//it's handled in KX_Scene::NewRemoveObject
+
+	UpdateCurveText(m_backupText); //eevee
 }
 
 EXP_Value *KX_FontObject::GetReplica()
@@ -182,12 +190,32 @@ void KX_FontObject::SetText(const std::string& text)
 	m_boundingBox->SetAabb(mt::vec3(min.x, min.y, 0.0f), mt::vec3(max.x, max.y, 0.0f));
 }
 
+void KX_FontObject::UpdateCurveText(std::string newText) //eevee
+{
+	Object *ob = GetBlenderObject();
+	Curve *cu = (Curve *)ob->data;
+	if (cu->str) MEM_freeN(cu->str);
+	if (cu->strinfo) MEM_freeN(cu->strinfo);
+
+	cu->len_wchar = strlen(newText.c_str());
+	cu->len = BLI_strlen_utf8(newText.c_str());
+	cu->strinfo = (CharInfo *)MEM_callocN((cu->len_wchar + 4) * sizeof(CharInfo), "texteditinfo");
+	cu->str = (char *)MEM_mallocN(cu->len + sizeof(wchar_t), "str");
+	BLI_strncpy(cu->str, newText.c_str(), MAX_BGE_TEXT_LEN);
+
+	DEG_id_tag_update(&ob->id, ID_RECALC_GEOMETRY);
+	DEG_id_tag_update(&ob->id, ID_RECALC_COPY_ON_WRITE);
+
+	GetScene()->ResetTaaSamples();
+}
+
 void KX_FontObject::UpdateTextFromProperty()
 {
 	// Allow for some logic brick control
 	EXP_Value *prop = GetProperty("Text");
 	if (prop && prop->GetText() != m_text) {
 		SetText(prop->GetText());
+		UpdateCurveText(m_text); //eevee
 	}
 }
 
