@@ -241,12 +241,6 @@ void RAS_OpenGLDebugDraw::Flush(RAS_Rasterizer *rasty, RAS_ICanvas *canvas, RAS_
 	//	glDrawElementsInstancedARB(GL_LINES, 24, GL_UNSIGNED_BYTE, nullptr, numaabbs);
 	//}
 
-	const unsigned int width = canvas->GetWidth();
-	const unsigned int height = canvas->GetHeight();
-
-	rasty->Disable(RAS_Rasterizer::RAS_DEPTH_TEST);
-	rasty->DisableForText();
-
 	//rasty->PushMatrix();
 	//rasty->LoadIdentity();
 
@@ -293,6 +287,12 @@ void RAS_OpenGLDebugDraw::Flush(RAS_Rasterizer *rasty, RAS_ICanvas *canvas, RAS_
 	BLF_disable(blf_mono_font, BLF_SHADOW);*/
 
 	DRW_state_reset();
+
+	const unsigned int width = canvas->GetWidth();
+	const unsigned int height = canvas->GetHeight();
+
+	rasty->Disable(RAS_Rasterizer::RAS_DEPTH_TEST);
+	rasty->DisableForText();
 
 	GPU_matrix_push();
 	GPU_matrix_push_projection();
