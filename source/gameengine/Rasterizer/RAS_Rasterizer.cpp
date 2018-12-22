@@ -242,6 +242,7 @@ RAS_Rasterizer::RAS_Rasterizer()
 
 RAS_Rasterizer::~RAS_Rasterizer()
 {
+	DRW_state_reset(); // make sure this is the last drawing call I think
 }
 
 void RAS_Rasterizer::Enable(RAS_Rasterizer::EnableBit bit)
