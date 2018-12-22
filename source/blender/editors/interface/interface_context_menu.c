@@ -404,7 +404,7 @@ bool ui_popup_context_menu_for_button(bContext *C, uiBut *but)
 		const PropertySubType subtype = RNA_property_subtype(prop);
 		bool is_anim = RNA_property_animateable(ptr, prop);
 		bool is_editable = RNA_property_editable(ptr, prop);
-		/*bool is_idprop = RNA_property_is_idprop(prop);*/ /* XXX does not work as expected, not strictly needed */
+		bool is_idprop = RNA_property_is_idprop(prop);
 		bool is_set = RNA_property_is_set(ptr, prop);
 
 		/* second slower test, saved people finding keyframe items in menus when its not possible */
@@ -643,6 +643,13 @@ bool ui_popup_context_menu_for_button(bContext *C, uiBut *but)
 			        ICON_NONE, "UI_OT_unset_property_button");
 		}
 
+		if (is_idprop && !is_array_component && ELEM(type, PROP_INT, PROP_FLOAT)) {
+			uiItemO(layout, CTX_IFACE_(BLT_I18NCONTEXT_OPERATOR_DEFAULT, "Assign Value as Default"),
+			        ICON_NONE, "UI_OT_assign_default_button");
+
+			uiItemS(layout);
+		}
+
 		if (is_array_component) {
 			uiItemBooleanO(
 			        layout, CTX_IFACE_(BLT_I18NCONTEXT_OPERATOR_DEFAULT, "Copy All To Selected"),
@@ -692,8 +699,13 @@ bool ui_popup_context_menu_for_button(bContext *C, uiBut *but)
 		        "Add to a user defined context menu (stored in the user preferences)");
 		UI_but_func_set(but2, popup_user_menu_add_or_replace_func, but, NULL);
 
-		bUserMenu *um = ED_screen_user_menu_find(C);
-		if (um) {
+		uint um_array_len;
+		bUserMenu **um_array = ED_screen_user_menus_find(C, &um_array_len);
+		for (int um_index = 0; um_index < um_array_len; um_index++) {
+			bUserMenu *um = um_array[um_index];
+			if (um == NULL) {
+				continue;
+			}
 			bUserMenuItem *umi = ui_but_user_menu_find(C, but, um);
 			if (umi != NULL) {
 				but2 = uiDefIconTextBut(
@@ -703,6 +715,8 @@ bool ui_popup_context_menu_for_button(bContext *C, uiBut *but)
 				UI_but_func_set(but2, popup_user_menu_remove_func, um, umi);
 			}
 		}
+		MEM_freeN(um_array);
+
 		uiItemS(layout);
 	}
 

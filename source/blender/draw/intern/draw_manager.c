@@ -151,7 +151,7 @@ struct DRWTextStore *DRW_text_cache_ensure(void)
 
 bool DRW_object_is_renderable(const Object *ob)
 {
-	BLI_assert(BKE_object_is_visible(ob, OB_VISIBILITY_CHECK_UNKNOWN_RENDER_MODE));
+	BLI_assert((ob->base_flag & BASE_VISIBLE) != 0);
 
 	if (ob->type == OB_MESH) {
 		if ((ob == DST.draw_ctx.object_edit) || BKE_object_is_in_editmode(ob)) {
@@ -171,12 +171,12 @@ bool DRW_object_is_renderable(const Object *ob)
  * Return whether this object is visible depending if
  * we are rendering or drawing in the viewport.
  */
-bool DRW_object_is_visible_in_active_context(const Object *ob)
+int DRW_object_visibility_in_active_context(const Object *ob)
 {
-	const eObjectVisibilityCheck mode = DRW_state_is_scene_render() ?
-	                                     OB_VISIBILITY_CHECK_FOR_RENDER :
-	                                     OB_VISIBILITY_CHECK_FOR_VIEWPORT;
-	return BKE_object_is_visible(ob, mode);
+	const eEvaluationMode mode = DRW_state_is_scene_render() ?
+	                                     DAG_EVAL_RENDER :
+	                                     DAG_EVAL_VIEWPORT;
+	return BKE_object_visibility(ob, mode);
 }
 
 bool DRW_object_is_flat_normal(const Object *ob)
@@ -1673,8 +1673,10 @@ bool DRW_render_check_grease_pencil(Depsgraph *depsgraph)
 {
 	DEG_OBJECT_ITER_FOR_RENDER_ENGINE_BEGIN(depsgraph, ob)
 	{
-		if ((ob->type == OB_GPENCIL) && (DRW_object_is_visible_in_active_context(ob))) {
-			return true;
+		if (ob->type == OB_GPENCIL) {
+			if (DRW_object_visibility_in_active_context(ob) & OB_VISIBLE_SELF) {
+				return true;
+			}
 		}
 	}
 	DEG_OBJECT_ITER_FOR_RENDER_ENGINE_END
@@ -1917,6 +1919,8 @@ void DRW_render_object_iter(
 			DST.dupli_source = data_.dupli_object_current;
 			DST.ob_state = NULL;
 			callback(vedata, ob, engine, depsgraph);
+
+			drw_batch_cache_generate_requested(ob);
 		}
 	}
 	DEG_OBJECT_ITER_END
@@ -2277,7 +2281,9 @@ void DRW_draw_depth_loop(
 	/* Get list of enabled engines */
 	{
 		drw_engines_enable_basic();
-		drw_engines_enable_from_object_mode();
+		if (DRW_state_draw_support()) {
+			drw_engines_enable_from_object_mode();
+		}
 	}
 
 	/* Setup viewport */

@@ -45,6 +45,8 @@
 #include "BKE_mesh.h"
 #include "BKE_library.h"
 
+#include "DEG_depsgraph_query.h"
+
 #include "bmesh.h"
 #include "bmesh_tools.h"
 
@@ -79,6 +81,23 @@ static CustomDataMask requiredDataMask(Object *UNUSED(ob), ModifierData *md)
 	return dataMask;
 }
 
+static DecimateModifierData *getOriginalModifierData(
+        const DecimateModifierData *dmd, const ModifierEvalContext *ctx)
+{
+	Object *ob_orig = DEG_get_original_object(ctx->object);
+	return (DecimateModifierData *)modifiers_findByName(ob_orig, dmd->modifier.name);
+}
+
+static void updateFaceCount(
+        const ModifierEvalContext *ctx, const DecimateModifierData *dmd, int face_count)
+{
+	if (DEG_is_active(ctx->depsgraph)) {
+		/* update for display only */
+		DecimateModifierData *dmd_orig = getOriginalModifierData(dmd, ctx);
+		dmd_orig->face_count = face_count;
+	}
+}
+
 static Mesh *applyModifier(
         ModifierData *md, const ModifierEvalContext *ctx,
         Mesh *meshData)
@@ -94,7 +113,7 @@ static Mesh *applyModifier(
 #endif
 
 	/* set up front so we dont show invalid info in the UI */
-	dmd->face_count = mesh->totpoly;
+	updateFaceCount(ctx, dmd, mesh->totpoly);
 
 	switch (dmd->mode) {
 		case MOD_DECIM_MODE_COLLAPSE:
@@ -187,8 +206,8 @@ static Mesh *applyModifier(
 		MEM_freeN(vweights);
 	}
 
-	/* update for display only */
-	dmd->face_count = bm->totface;
+	updateFaceCount(ctx, dmd, bm->totface);
+
 	result = BKE_mesh_from_bmesh_for_eval_nomain(bm, 0);
 	BLI_assert(bm->vtoolflagpool == NULL &&
 	           bm->etoolflagpool == NULL &&

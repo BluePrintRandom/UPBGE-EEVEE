@@ -101,13 +101,14 @@ bool BKE_object_is_mode_compat(const struct Object *ob, eObjectMode object_mode)
 
 bool BKE_object_data_is_in_editmode(const struct ID *id);
 
-typedef enum eObjectVisibilityCheck {
-	OB_VISIBILITY_CHECK_FOR_VIEWPORT,
-	OB_VISIBILITY_CHECK_FOR_RENDER,
-	OB_VISIBILITY_CHECK_UNKNOWN_RENDER_MODE,
-} eObjectVisibilityCheck;
+typedef enum eObjectVisibilityResult {
+	OB_VISIBLE_SELF = 1,
+	OB_VISIBLE_PARTICLES = 2,
+	OB_VISIBLE_INSTANCES = 4,
+	OB_VISIBLE_ALL = (OB_VISIBLE_SELF | OB_VISIBLE_PARTICLES | OB_VISIBLE_INSTANCES),
+} eObjectVisibilityResult;
 
-bool BKE_object_is_visible(const struct Object *ob, const eObjectVisibilityCheck mode);
+int BKE_object_visibility(const struct Object *ob, const int dag_eval_mode);
 
 void BKE_object_init(struct Object *ob);
 struct Object *BKE_object_add_only_object(
@@ -169,8 +170,9 @@ struct Base **BKE_object_pose_base_array_get_unique(struct ViewLayer *view_layer
 struct Base **BKE_object_pose_base_array_get(struct ViewLayer *view_layer, struct View3D *v3d, unsigned int *r_bases_len);
 
 void BKE_object_get_parent_matrix(
-        struct Depsgraph *depsgraph, struct Scene *scene, struct Object *ob,
-        struct Object *par, float parentmat[4][4]);
+        struct Object *ob, struct Object *par, float parentmat[4][4]);
+void BKE_object_get_parent_matrix_for_dupli(
+        struct Object *ob, struct Object *par, float dupli_ctime, int dupli_transflag, float parentmat[4][4]);
 void BKE_object_where_is_calc(
         struct Depsgraph *depsgraph, struct Scene *scene, struct Object *ob);
 void BKE_object_where_is_calc_ex(
@@ -178,11 +180,12 @@ void BKE_object_where_is_calc_ex(
         struct Object *ob, float r_originmat[3][3]);
 void BKE_object_where_is_calc_time(
         struct Depsgraph *depsgraph, struct Scene *scene, struct Object *ob, float ctime);
+void BKE_object_where_is_calc_time_for_dupli(
+        struct Depsgraph *depsgraph, struct Scene *scene, struct Object *ob, float ctime, int dupli_transflag);
 void BKE_object_where_is_calc_time_ex(
-        struct Depsgraph *depsgraph, struct Scene *scene, struct Object *ob, float ctime,
+        struct Depsgraph *depsgraph, struct Scene *scene, struct Object *ob, float ctime, int dupli_transflag,
         struct RigidBodyWorld *rbw, float r_originmat[3][3]);
-void BKE_object_where_is_calc_mat4(
-        struct Depsgraph *depsgraph, struct Scene *scene, struct Object *ob, float obmat[4][4]);
+void BKE_object_where_is_calc_mat4(struct Object *ob, float obmat[4][4]);
 
 /* possibly belong in own moduke? */
 struct BoundBox *BKE_boundbox_alloc_unit(void);
@@ -243,7 +246,6 @@ void BKE_object_eval_local_transform(
         struct Object *ob);
 void BKE_object_eval_parent(
         struct Depsgraph *depsgraph,
-        struct Scene *scene,
         struct Object *ob);
 void BKE_object_eval_constraints(
         struct Depsgraph *depsgraph,
@@ -331,6 +333,7 @@ void BKE_object_data_relink(struct Object *ob);
 struct MovieClip *BKE_object_movieclip_get(struct Scene *scene, struct Object *ob, bool use_default);
 
 void BKE_object_runtime_reset(struct Object *object);
+void BKE_object_runtime_reset_on_copy(struct Object *object);
 
 void BKE_object_batch_cache_dirty_tag(struct Object *ob);
 

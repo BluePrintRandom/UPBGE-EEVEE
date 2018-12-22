@@ -405,7 +405,7 @@ KX_LibLoadStatus *BL_Converter::LinkBlendFile(BlendHandle *blendlib, const char 
 
 	// Don't need any special options.
 	const short flag = 0;
-	BLO_library_link_end(main_tmp, &blendlib, flag, main_newlib, nullptr, nullptr);
+	BLO_library_link_end(main_tmp, &blendlib, flag, main_newlib, nullptr, nullptr, nullptr);
 	BLO_blendhandle_close(blendlib);
 
 	BKE_reports_clear(&reports);

@@ -771,6 +771,8 @@ void uiTemplateInputStatus(uiLayout *layout, struct bContext *C) RET_NONE
 void uiLayoutSetPropDecorate(uiLayout *layout, bool is_sep) RET_NONE
 bool uiLayoutGetPropDecorate(uiLayout *layout) RET_ZERO
 
+int uiLayoutGetLocalDir(const uiLayout *layout) RET_ZERO
+
 void ED_workspace_status_text(struct bContext *C, const char *str) RET_NONE
 
 
@@ -867,6 +869,8 @@ void uiItemS(struct uiLayout *layout) RET_NONE
 void uiItemFullR(uiLayout *layout, struct PointerRNA *ptr, struct PropertyRNA *prop, int index, int value, int flag, const char *name, int icon) RET_NONE
 void uiLayoutSetContextPointer(uiLayout *layout, const char *name, struct PointerRNA *ptr) RET_NONE
 const char *uiLayoutIntrospect(uiLayout *layout) RET_NULL
+
+void uiItemMContents(uiLayout *layout, const char *menuname) RET_NONE
 
 void uiItemEnumR_string_prop(uiLayout *layout, struct PointerRNA *ptr, struct PropertyRNA *prop, const char *value, const char *name, int icon) RET_NONE
 void uiItemPointerR_prop(uiLayout *layout, struct PointerRNA *ptr, PropertyRNA *prop, struct PointerRNA *searchptr, struct PropertyRNA *searchprop, const char *name, int icon) RET_NONE
