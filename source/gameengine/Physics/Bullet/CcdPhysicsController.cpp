@@ -1850,13 +1850,13 @@ bool CcdShapeConstructionInfo::UpdateMesh(KX_GameObject *gameobj, RAS_Mesh *mesh
 		const unsigned int indicesCount = array->GetTriangleIndexCount();
 
 		// If collisions are disabled: do nothing.
-		if (mat->IsCollider()) {
+		//if (mat->IsCollider()) {
 			numIndices += indicesCount;
 			numVertices = std::max(numVertices, array->GetMaxOrigIndex() + 1);
 			// Add valid display arrays.
 			displayArrays.push_back(array);
 			polygonStartIndices.push_back(curPolygonStartIndex);
-		}
+		//}
 
 		curPolygonStartIndex += indicesCount / 3;
 	}

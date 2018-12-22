@@ -2795,7 +2795,7 @@ void CcdPhysicsEnvironment::ConvertObject(BL_SceneConverter& converter, KX_GameO
 
 	btCollisionShape *bm = nullptr;
 
-	char bounds = isbulletdyna ? OB_BOUND_SPHERE : OB_BOUND_BOX;/*OB_BOUND_TRIANGLE_MESH*/;
+	char bounds = isbulletdyna ? OB_BOUND_SPHERE : OB_BOUND_TRIANGLE_MESH;
 	if (!(blenderobject->gameflag & OB_BOUNDS)) {
 		if (blenderobject->gameflag & OB_SOFT_BODY) {
 			bounds = OB_BOUND_TRIANGLE_MESH;
