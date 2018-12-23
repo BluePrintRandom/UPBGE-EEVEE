@@ -38,25 +38,31 @@
 
 class RAS_DisplayArray;
 
+struct MVert;
+struct Mesh;
+
 class KX_VertexProxy : public EXP_Value
 {
 	Py_Header
 
 protected:
-	unsigned int m_vertexIndex;
-	RAS_DisplayArray *m_array;
+	//unsigned int m_vertexIndex;
+	//RAS_DisplayArray *m_array;
+
+	MVert *m_vert;
+	Mesh *m_mesh;
 
 public:
-	KX_VertexProxy(RAS_DisplayArray *array, unsigned int vertexIndex);
+	KX_VertexProxy(Mesh *mesh, MVert *mvert);
 	virtual ~KX_VertexProxy();
 
-	unsigned int GetVertexIndex() const;
-	RAS_DisplayArray *GetDisplayArray() const;
+	//unsigned int GetVertexIndex() const;
+	//RAS_DisplayArray *GetDisplayArray() const;
 
 	// stuff for cvalue related things
 	std::string GetName();
 
-	static PyObject *pyattr_get_x(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef);
+	/*static PyObject *pyattr_get_x(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef);
 	static PyObject *pyattr_get_y(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef);
 	static PyObject *pyattr_get_z(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef);
 	static PyObject *pyattr_get_r(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef);
@@ -66,9 +72,9 @@ public:
 	static PyObject *pyattr_get_u(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef);
 	static PyObject *pyattr_get_v(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef);
 	static PyObject *pyattr_get_u2(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef);
-	static PyObject *pyattr_get_v2(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef);
+	static PyObject *pyattr_get_v2(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef);*/
 	static PyObject *pyattr_get_XYZ(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef);
-	static PyObject *pyattr_get_UV(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef);
+	/*static PyObject *pyattr_get_UV(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef);
 	static PyObject *pyattr_get_color(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef);
 	static PyObject *pyattr_get_colors(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef);
 	static PyObject *pyattr_get_normal(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef);
@@ -83,15 +89,15 @@ public:
 	static int pyattr_set_r(EXP_PyObjectPlus *self, const EXP_PYATTRIBUTE_DEF *attrdef, PyObject *value);
 	static int pyattr_set_g(EXP_PyObjectPlus *self, const EXP_PYATTRIBUTE_DEF *attrdef, PyObject *value);
 	static int pyattr_set_b(EXP_PyObjectPlus *self, const EXP_PYATTRIBUTE_DEF *attrdef, PyObject *value);
-	static int pyattr_set_a(EXP_PyObjectPlus *self, const EXP_PYATTRIBUTE_DEF *attrdef, PyObject *value);
+	static int pyattr_set_a(EXP_PyObjectPlus *self, const EXP_PYATTRIBUTE_DEF *attrdef, PyObject *value);*/
 	static int pyattr_set_XYZ(EXP_PyObjectPlus *self, const EXP_PYATTRIBUTE_DEF *attrdef, PyObject *value);
-	static int pyattr_set_UV(EXP_PyObjectPlus *self, const EXP_PYATTRIBUTE_DEF *attrdef, PyObject *value);
+	/*static int pyattr_set_UV(EXP_PyObjectPlus *self, const EXP_PYATTRIBUTE_DEF *attrdef, PyObject *value);
 	static int pyattr_set_color(EXP_PyObjectPlus *self, const EXP_PYATTRIBUTE_DEF *attrdef, PyObject *value);
 	static int pyattr_set_colors(EXP_PyObjectPlus *self, const EXP_PYATTRIBUTE_DEF *attrdef, PyObject *value);
 	static int pyattr_set_normal(EXP_PyObjectPlus *self, const EXP_PYATTRIBUTE_DEF *attrdef, PyObject *value);
-	static int pyattr_set_uvs(EXP_PyObjectPlus *self, const EXP_PYATTRIBUTE_DEF *attrdef, PyObject *value);
+	static int pyattr_set_uvs(EXP_PyObjectPlus *self, const EXP_PYATTRIBUTE_DEF *attrdef, PyObject *value);*/
 
-	unsigned int py_get_uvs_size();
+	/*unsigned int py_get_uvs_size();
 	PyObject *py_get_uvs_item(unsigned int index);
 	bool py_set_uvs_item(unsigned int index, PyObject *item);
 	unsigned int py_get_colors_size();
@@ -109,7 +115,7 @@ public:
 	EXP_PYMETHOD_NOARGS(KX_VertexProxy, GetRGBA);
 	EXP_PYMETHOD_O(KX_VertexProxy, SetRGBA);
 	EXP_PYMETHOD_NOARGS(KX_VertexProxy, GetNormal);
-	EXP_PYMETHOD_O(KX_VertexProxy, SetNormal);
+	EXP_PYMETHOD_O(KX_VertexProxy, SetNormal);*/
 };
 
 #endif  // WITH_PYTHON

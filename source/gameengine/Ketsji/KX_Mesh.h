@@ -55,6 +55,8 @@ class KX_Mesh : public EXP_Value, public BL_Resource, public RAS_Mesh
 private:
 	KX_Scene *m_scene;
 
+	Mesh *m_mesh;
+
 public:
 	KX_Mesh(KX_Scene *scene, Mesh *mesh, const LayersInfo& layersInfo);
 	KX_Mesh(const KX_Mesh& other);
@@ -67,13 +69,13 @@ public:
 
 #ifdef WITH_PYTHON
 
-	EXP_PYMETHOD(KX_Mesh, GetMaterialName);
-	EXP_PYMETHOD(KX_Mesh, GetTextureName);
+	/*EXP_PYMETHOD(KX_Mesh, GetMaterialName);
+	EXP_PYMETHOD(KX_Mesh, GetTextureName);*/
 
 	// both take materialid (int)
 	EXP_PYMETHOD(KX_Mesh, GetVertexArrayLength);
 	EXP_PYMETHOD(KX_Mesh, GetVertex);
-	EXP_PYMETHOD(KX_Mesh, GetPolygon);
+	/*EXP_PYMETHOD(KX_Mesh, GetPolygon);
 	EXP_PYMETHOD(KX_Mesh, Transform);
 	EXP_PYMETHOD(KX_Mesh, TransformUV);
 	EXP_PYMETHOD(KX_Mesh, ReplaceMaterial);
@@ -86,7 +88,7 @@ public:
 	static PyObject *pyattr_get_polygons(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef);
 
 	unsigned int py_get_polygons_size();
-	PyObject *py_get_polygons_item(unsigned int index);
+	PyObject *py_get_polygons_item(unsigned int index);*/
 
 #endif  // WITH_PYTHON
 };

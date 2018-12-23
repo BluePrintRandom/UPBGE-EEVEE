@@ -244,7 +244,7 @@ KX_GameObject::~KX_GameObject()
 	}
 	else { // at scene exit
 		//UnHideOriginalObject();
-		//RestoreOriginalMesh(); // we restore original mesh in the case we modified it during runtime // Don't know why it is crashing but not used for now
+		RestoreOriginalMesh(); // we restore original mesh in the case we modified it during runtime // Don't know why it is crashing but not used for now
 	}
 
 	/* END OF EEVEE INTEGRATION */
@@ -337,7 +337,9 @@ void KX_GameObject::RestoreOriginalMesh()
 		Main *bmain = KX_GetActiveEngine()->GetConverter()->GetMain();
 		Mesh *origMesh = (Mesh *)ob->data;
 		BKE_mesh_copy_data(bmain, origMesh, m_backupMesh, 0);
-		DEG_id_tag_update(&origMesh->id, ID_RECALC_GEOMETRY);
+		DEG_id_tag_update(&origMesh->id, ID_RECALC_GEOMETRY | ID_RECALC_COPY_ON_WRITE);
+
+		BKE_id_free(bmain, &m_backupMesh->id);
 	}
 }
 

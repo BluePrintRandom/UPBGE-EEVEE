@@ -186,9 +186,10 @@ unsigned int KX_PolyProxy::py_get_vertices_size()
 
 PyObject *KX_PolyProxy::py_get_vertices_item(unsigned int index)
 {
-	KX_VertexProxy *vert = new KX_VertexProxy(m_polygon.array, m_polygon.indices[index]);
+	/*KX_VertexProxy *vert = new KX_VertexProxy(m_polygon.array, m_polygon.indices[index]);
 
-	return vert->NewProxy(true);
+	return vert->NewProxy(true);*/
+	return nullptr;
 }
 
 PyObject *KX_PolyProxy::pyattr_get_vertices(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef)
