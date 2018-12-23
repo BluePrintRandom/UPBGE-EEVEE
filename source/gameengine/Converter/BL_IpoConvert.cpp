@@ -66,6 +66,10 @@
 #include "SG_Node.h"
 #include "SG_Interpolator.h"
 
+extern "C" {
+#  include "DNA_ipo_types.h"
+}
+
 SG_Controller *BL_CreateIPO(BL_ActionData *action, KX_GameObject *gameobj, KX_Scene *scene)
 {
 	KX_IpoController *ipocontr = new KX_IpoController();
@@ -102,7 +106,7 @@ SG_Controller *BL_CreateIPO(BL_ActionData *action, KX_GameObject *gameobj, KX_Sc
 
 	BL_ScalarInterpolator *interp;
 
-	/*for (int i = 0; i < 3; i++) {
+	for (int i = 0; i < 3; i++) {
 		if ((interp = action->GetScalarInterpolator("location", i))) {
 			SG_Interpolator interpolator(&(ipocontr->GetIPOTransform().GetPosition()[i]), interp);
 			ipocontr->AddInterpolator(interpolator);
@@ -143,7 +147,7 @@ SG_Controller *BL_CreateIPO(BL_ActionData *action, KX_GameObject *gameobj, KX_Sc
 			ipocontr->AddInterpolator(interpolator);
 			ipocontr->SetIPOChannelActive(OB_DSIZE_X + i, true);
 		}
-	}*/
+	}
 
 
 	return ipocontr;
