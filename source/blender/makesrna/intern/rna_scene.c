@@ -4247,12 +4247,6 @@ static void rna_def_scene_game_data(BlenderRNA *brna)
 		{0, NULL, 0, NULL, NULL}
 	};
 
-	static const EnumPropertyItem material_items[] = {
-		{GAME_MAT_MULTITEX, "MULTITEXTURE", 0, "Multitexture", "Multitexture materials"},
-		{GAME_MAT_GLSL, "GLSL", 0, "GLSL", "OpenGL shading language shaders"},
-		{0, NULL, 0, NULL, NULL}
-	};
-
 	static const EnumPropertyItem obstacle_simulation_items[] = {
 		{OBSTSIMULATION_NONE, "NONE", 0, "None", ""},
 		{OBSTSIMULATION_TOI_rays, "RVO_RAYS", 0, "RVO (rays)", ""},
@@ -4319,12 +4313,6 @@ static void rna_def_scene_game_data(BlenderRNA *brna)
 	RNA_def_property_ui_text(prop, "Exit Key", "The key that exits the Game Engine");
 	RNA_def_property_update(prop, NC_SCENE, NULL);
 	
-	prop = RNA_def_property(srna, "raster_storage", PROP_ENUM, PROP_NONE);
-	RNA_def_property_enum_sdna(prop, NULL, "raster_storage");
-	RNA_def_property_enum_items(prop, storage_items);
-	RNA_def_property_ui_text(prop, "Storage", "Set the storage mode used by the rasterizer");
-	RNA_def_property_update(prop, NC_SCENE, NULL);
-	
 	/* Do we need it here ? (since we already have it in World */
 	prop = RNA_def_property(srna, "frequency", PROP_INT, PROP_NONE);
 	RNA_def_property_int_sdna(prop, NULL, "freqplay");
@@ -4377,47 +4365,6 @@ static void rna_def_scene_game_data(BlenderRNA *brna)
 	RNA_def_property_float_default(prop, 0.1f);
 	RNA_def_property_ui_text(prop, "Eye Separation",
 	                         "Set the distance between the eyes - the camera focal distance/30 should be fine");
-	RNA_def_property_update(prop, NC_SCENE, NULL);
-	
-	/* Dome */
-	prop = RNA_def_property(srna, "dome_mode", PROP_ENUM, PROP_NONE);
-	RNA_def_property_enum_sdna(prop, NULL, "dome.mode");
-	RNA_def_property_enum_items(prop, dome_modes_items);
-	RNA_def_property_ui_text(prop, "Dome Mode", "Dome physical configurations");
-	RNA_def_property_update(prop, NC_SCENE, NULL);
-	
-	prop = RNA_def_property(srna, "dome_tessellation", PROP_INT, PROP_NONE);
-	RNA_def_property_int_sdna(prop, NULL, "dome.res");
-	RNA_def_property_ui_range(prop, 1, 8, 1, 1);
-	RNA_def_property_int_default(prop, 4);
-	RNA_def_property_ui_text(prop, "Tessellation", "Tessellation level - check the generated mesh in wireframe mode");
-	RNA_def_property_update(prop, NC_SCENE, NULL);
-	
-	prop = RNA_def_property(srna, "dome_buffer_resolution", PROP_FLOAT, PROP_NONE);
-	RNA_def_property_float_sdna(prop, NULL, "dome.resbuf");
-	RNA_def_property_ui_range(prop, 0.1, 1.0, 0.1, 2);
-	RNA_def_property_float_default(prop, 1.0f);
-	RNA_def_property_ui_text(prop, "Buffer Resolution", "Buffer Resolution - decrease it to increase speed");
-	RNA_def_property_update(prop, NC_SCENE, NULL);
-	
-	prop = RNA_def_property(srna, "dome_angle", PROP_INT, PROP_NONE);
-	RNA_def_property_int_sdna(prop, NULL, "dome.angle");
-	RNA_def_property_ui_range(prop, 90, 250, 1, 1);
-	RNA_def_property_int_default(prop, 180);
-	RNA_def_property_ui_text(prop, "Angle", "Field of View of the Dome - it only works in mode Fisheye and Truncated");
-	RNA_def_property_update(prop, NC_SCENE, NULL);
-	
-	prop = RNA_def_property(srna, "dome_tilt", PROP_INT, PROP_NONE);
-	RNA_def_property_int_sdna(prop, NULL, "dome.tilt");
-	RNA_def_property_ui_range(prop, -180, 180, 1, 1);
-	RNA_def_property_ui_text(prop, "Tilt", "Camera rotation in horizontal axis");
-	RNA_def_property_update(prop, NC_SCENE, NULL);
-	
-	prop = RNA_def_property(srna, "dome_text", PROP_POINTER, PROP_NONE);
-	RNA_def_property_pointer_sdna(prop, NULL, "dome.warptext");
-	RNA_def_property_struct_type(prop, "Text");
-	RNA_def_property_flag(prop, PROP_EDITABLE);
-	RNA_def_property_ui_text(prop, "Warp Data", "Custom Warp Mesh data file");
 	RNA_def_property_update(prop, NC_SCENE, NULL);
 	
 	/* physics */
@@ -4512,14 +4459,6 @@ static void rna_def_scene_game_data(BlenderRNA *brna)
 	                         "threshold will deactivate (0.0 means no deactivation)");
 	RNA_def_property_update(prop, NC_SCENE, NULL);
 
-	/* not used  *//* deprecated !!!!!!!!!!!!! */
-	prop = RNA_def_property(srna, "activity_culling_box_radius", PROP_FLOAT, PROP_NONE);
-	RNA_def_property_float_sdna(prop, NULL, "activityBoxRadius");
-	RNA_def_property_range(prop, 0.0, 1000.0);
-	RNA_def_property_ui_text(prop, "Box Radius",
-	                         "Radius of the activity bubble, in Manhattan length "
-	                         "(objects outside the box are activity-culled)");
-
 	/* booleans */
 	prop = RNA_def_property(srna, "show_debug_properties", PROP_BOOLEAN, PROP_NONE);
 	RNA_def_property_boolean_sdna(prop, NULL, "flag", GAME_SHOW_DEBUG_PROPS);
@@ -4566,12 +4505,6 @@ static void rna_def_scene_game_data(BlenderRNA *brna)
 	                         "better for performance, but can cause issues with smooth playback)");
 	
 	/* materials */
-	prop = RNA_def_property(srna, "material_mode", PROP_ENUM, PROP_NONE);
-	RNA_def_property_enum_sdna(prop, NULL, "matmode");
-	RNA_def_property_enum_items(prop, material_items);
-	RNA_def_property_ui_text(prop, "Material Mode", "Material mode to use for rendering");
-	RNA_def_property_update(prop, NC_SCENE | NA_EDITED, NULL);
-
 	prop = RNA_def_property(srna, "use_glsl_lights", PROP_BOOLEAN, PROP_NONE);
 	RNA_def_property_boolean_negative_sdna(prop, NULL, "flag", GAME_GLSL_NO_LIGHTS);
 	RNA_def_property_ui_text(prop, "GLSL Lights", "Use lights for GLSL rendering");

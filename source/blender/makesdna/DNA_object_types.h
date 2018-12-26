@@ -341,12 +341,12 @@ typedef struct Object {
 	short softflag;			/* softbody settings */
 	float anisotropicFriction[3];
 
-	/************Game engine**************/
+	/************Part of Game engine settings: TODO reorganize **************/
 	/* dynamic properties */
 	float friction, rolling_friction, fh, reflect;
 	float fhdist, xyfrict;
 	short dynamode, pad51[3];
-	/********End of Game engine***********/
+	/********End of Part of Game engine settings ****************************/
 
 	ListBase constraints;		/* object constraints */
 	ListBase nlastrips  DNA_DEPRECATED;			// XXX deprecated... old animation system
@@ -385,6 +385,7 @@ typedef struct Object {
 
 	ListBase lodlevels;		/* contains data for levels of detail */
 	LodLevel *currentlod;
+	float lodfactor, pad56;
 
 	struct PreviewImage *preview;
 

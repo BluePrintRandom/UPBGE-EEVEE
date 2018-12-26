@@ -900,7 +900,7 @@ void BKE_object_init(Object *ob)
 	ob->max_slope = M_PI_2;
 	ob->col_group = 0x01;
 	ob->col_mask = 0xffff;
-	//ob->lodfactor = 1.0f;
+	ob->lodfactor = 1.0f;
 	ob->preview = NULL;
 	ob->duplicator_visibility_flag = OB_DUPLI_FLAG_VIEWPORT | OB_DUPLI_FLAG_RENDER;
 

@@ -821,43 +821,44 @@ typedef struct GameData {
 	struct GameFraming framing;
 	short playerflag, xplay, yplay, freqplay;
 	short depth, attrib, rt1, rt2;
-	short aasamples, pad4[3];
-
-	/* stereo/dome mode */
-	struct GameDome dome;
-	short stereoflag, stereomode;
-	float eyeseparation;
-	RecastData recastData;
-
+	short aasamples;
+	short hdr;
 
 	/* physics (it was in world)*/
 	float gravity; /*Gravitation constant for the game world*/
 
-	/*
-	 * Radius of the activity bubble, in Manhattan length. Objects
-	 * outside the box are activity-culled. */
-	float activityBoxRadius;
+	short stereoflag, stereomode;
+	float eyeseparation;
+	RecastData recastData;
 
 	/*
 	 * bit 3: (gameengine): Activity culling is enabled.
 	 * bit 5: (gameengine) : enable Bullet DBVT tree for view frustum culling
 	 */
 	int flag;
-	short mode, matmode;
+	short mode;
 	short occlusionRes;		/* resolution of occlusion Z buffer in pixel */
 	short physicsEngine;
+	short solverType;
 	short exitkey;
+	short pythonkeys[4];
 	short vsync; /* Controls vsync: off, on, or adaptive (if supported) */
-	short ticrate, maxlogicstep, physubstep, maxphystep;
 	short obstacleSimulation;
-	short raster_storage;
+	short ticrate, maxlogicstep, physubstep, maxphystep;
+	short pad5;
+	float timeScale;
 	float levelHeight;
 	float deactivationtime, lineardeactthreshold, angulardeactthreshold;
 
+	/* Debug options */
+	short showBoundingBox;
+	short showArmatures;
+	short showCameraFrustum;
+	short showShadowFrustum;
+
 	/* Scene LoD */
 	short lodflag, pad2;
-	int scehysteresis, pad5;
-
+	int scehysteresis;
 } GameData;
 
 /* GameData.stereoflag */
@@ -929,8 +930,6 @@ enum {
 #ifdef DNA_DEPRECATED
 	GAME_MAT_TEXFACE    = 0, /* deprecated */
 #endif
-	GAME_MAT_MULTITEX   = 1,
-	GAME_MAT_GLSL       = 2,
 };
 
 /* GameData.lodflag */
@@ -1793,7 +1792,7 @@ typedef struct Scene {
 	/* Physics simulation settings */
 	struct PhysicsSettings physics_settings;
 
-	void *pad8;
+	void *pad8[2];
 	uint64_t customdata_mask;	/* XXX. runtime flag for drawing, actually belongs in the window, only used by BKE_object_handle_update() */
 	uint64_t customdata_mask_modal; /* XXX. same as above but for temp operator use (gl renders) */
 

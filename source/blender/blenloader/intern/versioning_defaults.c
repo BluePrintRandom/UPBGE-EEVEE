@@ -32,6 +32,7 @@
 #include "BLI_math.h"
 #include "BLI_string.h"
 
+#include "DNA_camera_types.h"
 #include "DNA_mesh_types.h"
 #include "DNA_gpencil_types.h"
 #include "DNA_mesh_types.h"
@@ -356,7 +357,7 @@ void BLO_update_defaults_startup_blend(Main *bmain, const char *app_template)
 		sce->gm.maxlogicstep = 5;
 		sce->gm.physubstep = 1;
 		sce->gm.maxphystep = 5;
-		//sce->gm.timeScale = 1.0f;
+		sce->gm.timeScale = 1.0f;
 		sce->gm.lineardeactthreshold = 0.8f;
 		sce->gm.angulardeactthreshold = 1.0f;
 		sce->gm.deactivationtime = 0.0f;
@@ -412,9 +413,16 @@ void BLO_update_defaults_startup_blend(Main *bmain, const char *app_template)
 		ob->max_slope = M_PI_2;
 		ob->col_group = 0x01;
 		ob->col_mask = 0xffff;
-		//ob->lodfactor = 1.0f;
+		ob->lodfactor = 1.0f;
 		ob->preview = NULL;
 		ob->duplicator_visibility_flag = OB_DUPLI_FLAG_VIEWPORT | OB_DUPLI_FLAG_RENDER;
+	}
+
+	for (Camera *ca = bmain->camera.first; ca; ca = ca->id.next) {
+		ca->lodfactor = 1.0f;
+		ca->gameflag |= GAME_CAM_OBJECT_ACTIVITY_CULLING;
+		ca->gameviewport.rightratio = 1.0f;
+		ca->gameviewport.topratio = 1.0f;
 	}
 	/***********************End of Game engine transition**********************/
 }

@@ -868,15 +868,6 @@ void blo_do_versions_250(FileData *fd, Library *lib, Main *bmain)
 				ts->vgroup_weight = 1.0f;
 			}
 
-			/* Game Settings */
-			/* Dome */
-			sce->gm.dome.angle = sce->r.domeangle;
-			sce->gm.dome.mode = sce->r.domemode;
-			sce->gm.dome.res = sce->r.domeres;
-			sce->gm.dome.resbuf = sce->r.domeresbuf;
-			sce->gm.dome.tilt = sce->r.dometilt;
-			sce->gm.dome.warptext = sce->r.dometext;
-
 			/* Stereo */
 			sce->gm.stereomode = sce->r.stereomode;
 			/* reassigning stereomode NO_STEREO and DOME to a separeted flag*/
@@ -932,13 +923,6 @@ void blo_do_versions_250(FileData *fd, Library *lib, Main *bmain)
 				sce->gm.flag |= GAME_GLSL_NO_ENV_LIGHTING;
 			if (fd->fileflags & G_FILE_IGNORE_DEPRECATION_WARNINGS)
 				sce->gm.flag |= GAME_IGNORE_DEPRECATION_WARNINGS;
-
-			if (fd->fileflags & G_FILE_GAME_MAT_GLSL)
-				sce->gm.matmode = GAME_MAT_GLSL;
-			else if (fd->fileflags & G_FILE_GAME_MAT)
-				sce->gm.matmode = GAME_MAT_MULTITEX;
-			else
-				sce->gm.matmode = GAME_MAT_TEXFACE;
 		}
 
 		for (ob = bmain->object.first; ob; ob = ob->id.next) {

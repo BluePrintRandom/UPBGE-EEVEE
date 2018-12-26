@@ -75,6 +75,13 @@ typedef struct CameraBGImage {
 	short source;
 } CameraBGImage;
 
+typedef struct GameCameraViewportSettings {
+	float leftratio;
+	float rightratio;
+	float bottomratio;
+	float topratio;
+} GameCameraViewportSettings;
+
 typedef struct Camera {
 	ID id;
 	struct AnimData *adt;	/* animation data (must be immediately after id for utilities to use it) */
@@ -82,6 +89,14 @@ typedef struct Camera {
 	char type; /* CAM_PERSP, CAM_ORTHO or CAM_PANO */
 	char dtx; /* draw type extra */
 	short flag;
+
+	/* Game settings */
+	short gameflag;
+	short pad2;
+	struct GameCameraViewportSettings gameviewport;
+	float lodfactor, pad50;
+	/*****************/
+
 	float passepartalpha;
 	float clipsta, clipend;
 	float lens, ortho_scale, drawsize;
@@ -92,6 +107,7 @@ typedef struct Camera {
 	/* qdn: yafray var 'YF_dofdist' now enabled for defocus composite node as well.
 	 * The name was not changed so that no other files need to be modified */
 	float YF_dofdist;
+	float pad51;
 
 	struct Ipo *ipo  DNA_DEPRECATED; /* old animation system, deprecated for 2.5 */
 
@@ -151,6 +167,14 @@ enum {
 	CAM_SHOWSENSOR          = (1 << 8),
 	CAM_SHOW_SAFE_CENTER    = (1 << 9),
 	CAM_SHOW_BG_IMAGE       = (1 << 10),
+};
+
+/* gameflag */
+enum {
+	GAME_CAM_SHOW_FRUSTUM = (1 << 0),
+	GAME_CAM_OVERRIDE_CULLING = (1 << 1),
+	GAME_CAM_OBJECT_ACTIVITY_CULLING = (1 << 2),
+	GAME_CAM_VIEWPORT = (1 << 3),
 };
 
 /* Sensor fit */

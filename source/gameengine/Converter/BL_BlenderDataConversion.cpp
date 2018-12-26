@@ -925,7 +925,7 @@ static KX_Camera *BL_GameCameraFromBlenderCamera(Object *ob, KX_Scene *kxscene, 
 	gamecamera = new KX_Camera(kxscene, KX_Scene::m_callbacks, camdata);
 	gamecamera->SetName(ca->id.name + 2);
 
-	/*if (ca->gameflag & GAME_CAM_VIEWPORT) {
+	if (ca->gameflag & GAME_CAM_VIEWPORT) {
 		const GameCameraViewportSettings& settings = ca->gameviewport;
 		if (settings.leftratio > settings.rightratio || settings.bottomratio > settings.topratio) {
 			CM_Warning("\"" << gamecamera->GetName() << "\" uses invalid custom viewport ratios, disabling custom viewport.");
@@ -952,7 +952,7 @@ static KX_Camera *BL_GameCameraFromBlenderCamera(Object *ob, KX_Scene *kxscene, 
 		else {
 			kxscene->SetOverrideCullingCamera(gamecamera);
 		}
-	}*/
+	}
 
 	return gamecamera;
 }
