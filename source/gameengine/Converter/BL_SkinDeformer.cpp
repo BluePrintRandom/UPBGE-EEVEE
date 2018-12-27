@@ -56,8 +56,16 @@
 
 extern "C" {
 	#include "BKE_lattice.h"
+	#include "BKE_layer.h"
 	#include "BKE_deform.h"
+	#include "BKE_object.h"
+	#include "BKE_scene.h"
+	#include "depsgraph/DEG_depsgraph.h"
+	#include "depsgraph/DEG_depsgraph_build.h"
+	#include "windowmanager/WM_types.h"
 }
+
+#include "KX_Globals.h"
 
 
 #include "BLI_blenlib.h"
@@ -126,10 +134,19 @@ void BL_SkinDeformer::BlenderDeformVerts(bool recalcNormal)
 	// set reference matrix
 	copy_m4_m4(m_objMesh->obmat, m_obmat);
 
+	BKE_armature_cached_bbone_deformation_update(par_arma);
+
 	armature_deform_verts(par_arma, m_objMesh, nullptr, (float(*)[3])m_transverts.data(), nullptr, m_bmesh->totvert, m_deformflags, nullptr, nullptr, nullptr);
+
+	KX_Scene *kxscene = KX_GetActiveScene();
+	Scene *scene = kxscene->GetBlenderScene();
+	ViewLayer *view_layer = BKE_view_layer_default_view(scene);
+	Depsgraph *depsgraph = BKE_scene_get_depsgraph(scene, view_layer, false);
 
 	// restore matrix
 	copy_m4_m4(m_objMesh->obmat, obmat);
+
+	KX_GetActiveScene()->ResetTaaSamples();
 
 	if (recalcNormal) {
 		RecalcNormals();
@@ -285,6 +302,8 @@ bool BL_SkinDeformer::UpdateInternal(bool shape_applied, bool recalcNormal)
 			//BGEDeformVerts(recalcNormal);
 		//}
 		//else {
+
+
 		BlenderDeformVerts(recalcNormal);
 		//}
 
