@@ -1404,10 +1404,10 @@ static void update_anim_thread_func(TaskPool *pool, void *taskdata, int UNUSED(t
 
 		// Check for meshes that haven't been culled
 		for (KX_GameObject *child : children) {
-			if (!child->GetCullingNode().GetCulled()) {
+			//if (!child->GetCullingNode().GetCulled()) {
 				needs_update = true;
 				break;
-			}
+			//}
 
 			if (child->GetMeshList().empty()) {
 				has_non_mesh = true;
