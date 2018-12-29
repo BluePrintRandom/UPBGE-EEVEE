@@ -48,6 +48,8 @@ private:
 	std::vector<float>	m_blendshape;
 	std::vector<float>	m_blendinshape;
 
+	float m_backupFrame; //eevee
+
 	float m_startframe;
 	float m_endframe;
 	/// The current action frame.

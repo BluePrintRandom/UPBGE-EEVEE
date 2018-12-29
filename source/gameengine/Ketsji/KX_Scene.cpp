@@ -1466,11 +1466,13 @@ void KX_Scene::UpdateAnimations(double curtime, bool restrict)
 
 	for (KX_GameObject *gameobj : m_animatedlist) {
 		if (!gameobj->IsActionsSuspended()) {
-			BLI_task_pool_push(m_animationPool, update_anim_thread_func, gameobj, false, TASK_PRIORITY_LOW);
+			//BLI_task_pool_push(m_animationPool, update_anim_thread_func, gameobj, false, TASK_PRIORITY_LOW);
+			// If the object is a culled armature, then we manage only the animation time and end of its animations.
+			gameobj->UpdateActionManager(curtime, true);
 		}
 	}
 
-	BLI_task_pool_work_and_wait(m_animationPool);
+	//BLI_task_pool_work_and_wait(m_animationPool);
 }
 
 void KX_Scene::LogicUpdateFrame(double curtime)
