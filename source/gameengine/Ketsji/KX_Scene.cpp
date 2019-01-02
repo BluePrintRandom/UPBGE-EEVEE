@@ -386,7 +386,7 @@ void KX_Scene::RenderAfterCameraSetup(bool calledFromConstructor)
 	glViewport(v[0], v[1], v[2], v[3]);
 	glScissor(v[0], v[1], v[2], v[3]);
 
-	DRW_transform_to_display(finaltex, true);
+	DRW_transform_to_display(finaltex, false);
 
 	if (!calledFromConstructor) {
 		engine->EndFrame();
