@@ -670,12 +670,11 @@ void KX_KetsjiEngine::Render()
 	//// Update all off screen to the current canvas size.
 	//m_rasterizer->UpdateOffScreens(m_canvas);
 
-	const int width = m_canvas->GetWidth();
-	const int height = m_canvas->GetHeight();
+	const int *viewport = m_canvas->GetViewPort();
 	// clear the entire game screen with the border color
 	// only once per frame
-	m_rasterizer->SetViewport(0, 0, width, height);
-	m_rasterizer->SetScissor(0, 0, width, height);
+	m_rasterizer->SetViewport(viewport[0], viewport[1], viewport[2], viewport[3]);
+	m_rasterizer->SetScissor(viewport[0], viewport[1], viewport[2], viewport[3]);
 
 	KX_Scene *firstscene = m_scenes->GetFront();
 	const RAS_FrameSettings &framesettings = firstscene->GetFramingType();
@@ -738,7 +737,7 @@ void KX_KetsjiEngine::Render()
 		}
 	}
 
-	m_canvas->SetViewPort(0, 0, width, height);
+	//m_canvas->SetViewPort(0, 0, width, height);
 
 	//// Compositing per eye off screens to screen.
 	//if (renderData.m_renderPerEye) {
