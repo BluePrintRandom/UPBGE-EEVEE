@@ -315,9 +315,11 @@ static void eevee_draw_background(void *vedata)
 		}
 	}
 
-	/* LookDev */
-	EEVEE_lookdev_draw_background(vedata);
-	/* END */
+	if (!DRW_state_is_game_engine) {
+		/* LookDev */
+		EEVEE_lookdev_draw_background(vedata);
+		/* END */
+	}
 
 
 	/* Tonemapping and transfer result to default framebuffer. */
