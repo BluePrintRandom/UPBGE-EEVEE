@@ -291,6 +291,9 @@ static int ui_text_icon_width(uiLayout *layout, const char *name, int icon, bool
 	variable = ui_layout_variable_size(layout);
 
 	if (variable) {
+		if (!icon && !name[0]) {
+			return unit_x; /* No icon or name. */
+		}
 		if (layout->alignment != UI_LAYOUT_ALIGN_EXPAND) {
 			layout->item.flag |= UI_ITEM_MIN;
 		}
@@ -655,7 +658,6 @@ static void ui_item_enum_expand_exec(
 	uiLayout *layout_radial = NULL;
 	const EnumPropertyItem *item, *item_array;
 	const char *name;
-	char group_name[UI_MAX_NAME_STR];
 	int itemw, icon, value;
 	bool free;
 	bool radial = (layout->root->type == UI_LAYOUT_PIEMENU);
@@ -700,8 +702,7 @@ static void ui_item_enum_expand_exec(
 					if (!is_first) {
 						uiItemS(block->curlayout);
 					}
-					BLI_snprintf(group_name, sizeof(group_name), "%s:", item->name);
-					uiItemL(block->curlayout, group_name, item->icon);
+					uiItemL(block->curlayout, item->name, item->icon);
 				}
 				else if (radial && layout_radial) {
 					uiItemS(layout_radial);
@@ -2244,7 +2245,9 @@ static uiBut *ui_item_menu(
 	}
 	else if (icon) {
 		but = uiDefIconMenuBut(block, func, arg, icon, 0, 0, w, h, tip);
-		UI_but_drawflag_enable(but, UI_BUT_ICON_LEFT);
+		if (force_menu) {
+			UI_but_drawflag_enable(but, UI_BUT_ICON_LEFT);
+		}
 	}
 	else {
 		but = uiDefMenuBut(block, func, arg, name, 0, 0, w, h, tip);
