@@ -1131,14 +1131,12 @@ static bool ui_multibut_states_tag(
 
 static void ui_multibut_states_create(uiBut *but_active, uiHandleButtonData *data)
 {
-	uiBut *but;
-
 	BLI_assert(data->multi_data.init == BUTTON_MULTI_INIT_SETUP);
 	BLI_assert(data->multi_data.has_mbuts);
 
 	data->multi_data.bs_mbuts = UI_butstore_create(but_active->block);
 
-	for (but = but_active->block->buttons.first; but; but = but->next) {
+	for (uiBut *but = but_active->block->buttons.first; but; but = but->next) {
 		if (but->flag & UI_BUT_DRAG_MULTI) {
 			ui_multibut_add(data, but);
 		}
@@ -1147,11 +1145,14 @@ static void ui_multibut_states_create(uiBut *but_active, uiHandleButtonData *dat
 	/* edit buttons proportionally to eachother
 	 * note: if we mix buttons which are proportional and others which are not,
 	 * this may work a bit strangely */
-	if (but_active->rnaprop) {
-		if ((data->origvalue != 0.0) && (RNA_property_flag(but_active->rnaprop) & PROP_PROPORTIONAL)) {
+	if ((but_active->rnaprop && (RNA_property_flag(but_active->rnaprop) & PROP_PROPORTIONAL)) ||
+	    ELEM(but_active->unit_type, PROP_UNIT_LENGTH))
+	{
+		if (data->origvalue != 0.0) {
 			data->multi_data.is_proportional = true;
 		}
 	}
+
 }
 
 static void ui_multibut_states_apply(bContext *C, uiHandleButtonData *data, uiBlock *block)

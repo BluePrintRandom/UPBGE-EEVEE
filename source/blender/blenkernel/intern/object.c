@@ -1466,7 +1466,8 @@ Object **BKE_object_pose_array_get_ex(ViewLayer *view_layer, View3D *v3d, uint *
 		objects = BKE_view_layer_array_from_objects_in_mode(
 		        view_layer, v3d, r_objects_len, {
 		            .object_mode = OB_MODE_POSE,
-		            .no_dup_data = unique});
+		            .no_dup_data = unique,
+		        });
 	}
 	else if (ob_pose != NULL) {
 		*r_objects_len = 1;
@@ -1508,7 +1509,8 @@ Base **BKE_object_pose_base_array_get_ex(ViewLayer *view_layer, View3D *v3d, uin
 		bases = BKE_view_layer_array_from_bases_in_mode(
 		        view_layer, v3d, r_bases_len, {
 		            .object_mode = OB_MODE_POSE,
-		            .no_dup_data = unique});
+		            .no_dup_data = unique,
+		        });
 	}
 	else if (base_pose != NULL) {
 		*r_bases_len = 1;
