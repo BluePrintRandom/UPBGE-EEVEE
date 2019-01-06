@@ -979,9 +979,9 @@ int GPU_framebuffer_color_bindcode(const GPUFrameBuffer *fb)
 	return GPU_texture_opengl_bindcode(fb->attachments[0].tex);
 }
 
-GPUTexture *GPU_framebuffer_color_texture(const GPUFrameBuffer *fb)
+GPUTexture *GPU_framebuffer_color_texture(const GPUFrameBuffer *fb, int slot)
 {
-	return fb->attachments[0].tex;
+	return fb->attachments[GPU_FB_COLOR_ATTACHMENT0 + slot].tex;
 }
 
 GPUTexture *GPU_framebuffer_depth_texture(const GPUFrameBuffer *fb)
@@ -991,14 +991,14 @@ GPUTexture *GPU_framebuffer_depth_texture(const GPUFrameBuffer *fb)
 
 void GPU_framebuffer_mipmap_texture(GPUFrameBuffer *fb)
 {
-	GPUTexture *tex = GPU_framebuffer_color_texture(fb);
+	GPUTexture *tex = GPU_framebuffer_color_texture(fb, 0);
 	GPU_texture_mipmap_mode(tex, true, false);
 	GPU_texture_generate_mipmap(tex);
 }
 
 void GPU_framebuffer_unmipmap_texture(GPUFrameBuffer *fb)
 {
-	GPUTexture *tex = GPU_framebuffer_color_texture(fb);
+	GPUTexture *tex = GPU_framebuffer_color_texture(fb, 0);
 	GPU_texture_mipmap_mode(tex, false, false);
 }
 /************End of Game engine***********/

@@ -50,11 +50,12 @@ class KX_Camera;
 class BL_Converter;
 class KX_NetworkMessageManager;
 class RAS_ICanvas;
-class RAS_OffScreen;
 class RAS_Query;
 class SCA_IInputDevice;
 template <class T>
 class EXP_ListValue;
+
+struct GPUFrameBuffer;
 
 struct KX_ExitInfo
 {
@@ -145,9 +146,7 @@ private:
 	/// Data used to render a frame.
 	struct FrameRenderData
 	{
-		FrameRenderData(RAS_Rasterizer::OffScreenType ofsType);
-
-		RAS_Rasterizer::OffScreenType m_ofsType;
+		FrameRenderData();
 		std::vector<SceneRenderData> m_sceneDataList;
 	};
 
@@ -297,8 +296,8 @@ private:
 	/// Compute frame render data per eyes (in case of stereo), scenes and camera.
 	RenderData GetRenderData();
 
-	void RenderCamera(KX_Scene *scene, const CameraRenderData& cameraFrameData, RAS_OffScreen *offScreen, unsigned short pass, bool isFirstScene);
-	RAS_OffScreen *PostRenderScene(KX_Scene *scene, RAS_OffScreen *inputofs, RAS_OffScreen *targetofs);
+	void RenderCamera(KX_Scene *scene, const CameraRenderData& cameraFrameData, GPUFrameBuffer *offScreen, unsigned short pass, bool isFirstScene);
+	GPUFrameBuffer *PostRenderScene(KX_Scene *scene, GPUFrameBuffer *inputofs, GPUFrameBuffer *targetofs);
 	void RenderDebugProperties();
 	/// Debug draw cameras frustum of a scene.
 	void DrawDebugCameraFrustum(KX_Scene *scene, const CameraRenderData& cameraFrameData);

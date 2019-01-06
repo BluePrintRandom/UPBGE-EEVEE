@@ -32,8 +32,9 @@
 
 class RAS_ICanvas;
 class RAS_Rasterizer;
-class RAS_OffScreen;
 class RAS_2DFilter;
+
+struct GPUFrameBuffer;
 
 typedef std::map<unsigned int, RAS_2DFilter *> RAS_PassTo2DFilter;
 
@@ -70,7 +71,7 @@ public:
 	 * \return The last used off screen, if none filters were rendered it's the
 	 * same off screen than inputofs.
 	 */
-	RAS_OffScreen *RenderFilters(RAS_Rasterizer *rasty, RAS_ICanvas *canvas, RAS_OffScreen *inputofs, RAS_OffScreen *targetofs);
+	GPUFrameBuffer *RenderFilters(RAS_Rasterizer *rasty, RAS_ICanvas *canvas, GPUFrameBuffer *inputofs, GPUFrameBuffer *targetofs);
 
 	/// Add a filter to the stack of filters managed by this object.
 	RAS_2DFilter *AddFilter(RAS_2DFilterData& filterData);
@@ -83,6 +84,8 @@ public:
 
 private:
 	RAS_PassTo2DFilter m_filters;
+
+	int m_index;
 
 	/** Creates a filter matching the given filter data. Returns nullptr if no
 	 * filter can be created with such information.

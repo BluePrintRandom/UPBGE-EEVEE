@@ -32,7 +32,7 @@
 #include "KX_PlanarMap.h"
 
 #include "RAS_Rasterizer.h"
-#include "RAS_OffScreen.h"
+//#include "GPUFrameBuffer.h"
 #include "RAS_Texture.h"
 
 #include "DNA_texture_types.h"
@@ -187,7 +187,7 @@ bool KX_TextureRendererManager::RenderRenderer(RAS_Rasterizer *rasty, KX_Texture
 	return true;
 }
 
-void KX_TextureRendererManager::Render(RendererCategory category, RAS_Rasterizer *rasty, RAS_OffScreen *offScreen,
+void KX_TextureRendererManager::Render(RendererCategory category, RAS_Rasterizer *rasty, GPUFrameBuffer *offScreen,
                                        KX_Camera *sceneCamera, const RAS_Rect& viewport, const RAS_Rect& area)
 {
 	const std::vector<KX_TextureRenderer *>& renderers = m_renderers[category];
@@ -208,7 +208,7 @@ void KX_TextureRendererManager::Render(RendererCategory category, RAS_Rasterizer
 
 	if (offScreen && rendered) {
 		// Restore the off screen bound before rendering the texture renderers.
-		offScreen->Bind();
+		//offScreen->Bind();
 	}
 }
 

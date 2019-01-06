@@ -376,6 +376,9 @@ GPUShader *GPU_shader_create_ex(
 
 	shader->program = glCreateProgram();
 
+	glBindAttribLocation(shader->program, 0, "filterPosition"); //game engine...
+	glBindAttribLocation(shader->program, 2, "filterTexCoord");
+
 	if (!shader->program ||
 	    (vertexcode && !shader->vertex) ||
 	    (fragcode && !shader->fragment) ||

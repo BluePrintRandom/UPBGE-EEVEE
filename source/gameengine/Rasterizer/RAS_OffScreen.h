@@ -20,12 +20,12 @@
  * ***** END GPL LICENSE BLOCK *****
  */
 
-/** \file RAS_OffScreen.h
+/** \file GPUFrameBuffer.h
  *  \ingroup bgerast
  */
 
-#ifndef __RAS_OFFSCREEN_H__
-#define __RAS_OFFSCREEN_H__
+#ifndef __GPUFrameBuffer_H__
+#define __GPUFrameBuffer_H__
 
 #include "RAS_Rasterizer.h"
 
@@ -34,7 +34,7 @@
 struct GPUOffScreen;
 struct GPUTexture;
 
-class RAS_OffScreen
+class GPUFrameBuffer
 {
 private:
 	/// All the off screens used.
@@ -43,18 +43,18 @@ private:
 	RAS_Rasterizer::OffScreenType m_type;
 
 	/// The last bound off screen, set to nullptr in RestoreScreen().
-	static RAS_OffScreen *lastOffScreen;
+	static GPUFrameBuffer *lastOffScreen;
 
 public:
-	/*RAS_OffScreen(unsigned int width, unsigned int height, int samples, GPUHDRType hdrType, GPUOffScreenMode mode, char errOut[256],
+	/*GPUFrameBuffer(unsigned int width, unsigned int height, int samples, GPUHDRType hdrType, GPUOffScreenMode mode, char errOut[256],
 				  RAS_Rasterizer::OffScreenType type);*/
-	~RAS_OffScreen();
+	~GPUFrameBuffer();
 
 	bool GetValid() const;
 
 	void Bind();
 	/// NOTE: This function has the side effect to leave the destination off screen bound.
-	RAS_OffScreen *Blit(RAS_OffScreen *dstOffScreen, bool color, bool depth);
+	GPUFrameBuffer *Blit(GPUFrameBuffer *dstOffScreen, bool color, bool depth);
 
 	void BindColorTexture(unsigned short slot);
 	void BindDepthTexture(unsigned short slot);
@@ -73,8 +73,8 @@ public:
 
 	GPUTexture *GetDepthTexture();
 
-	static RAS_OffScreen *GetLastOffScreen();
+	static GPUFrameBuffer *GetLastOffScreen();
 	static void RestoreScreen();
 };
 
-#endif  // __RAS_OFFSCREEN_H__
+#endif  // __GPUFrameBuffer_H__

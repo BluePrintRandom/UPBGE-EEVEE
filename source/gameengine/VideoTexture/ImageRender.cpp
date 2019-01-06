@@ -43,7 +43,6 @@
 #include "KX_Globals.h"
 #include "KX_Mesh.h"
 #include "DNA_scene_types.h"
-#include "RAS_OffScreen.h"
 #include "RAS_CameraData.h"
 #include "RAS_MaterialBucket.h"
 #include "RAS_DisplayArray.h"
@@ -107,9 +106,9 @@ ImageRender::ImageRender(KX_Scene *scene, KX_Camera *camera, unsigned int width,
 		m_internalFormat = GL_RGBA12;
 	}
 
-	m_offScreen.reset(new RAS_OffScreen(m_width, m_height, m_samples, type, GPU_OFFSCREEN_RENDERBUFFER_DEPTH, nullptr, RAS_Rasterizer::RAS_OFFSCREEN_CUSTOM));
+	m_offScreen.reset(new GPUFrameBuffer(m_width, m_height, m_samples, type, GPU_OFFSCREEN_RENDERBUFFER_DEPTH, nullptr, RAS_Rasterizer::GPUFrameBuffer_CUSTOM));
 	if (m_samples > 0) {
-		m_blitOffScreen.reset(new RAS_OffScreen(m_width, m_height, 0, type, GPU_OFFSCREEN_RENDERBUFFER_DEPTH, nullptr, RAS_Rasterizer::RAS_OFFSCREEN_CUSTOM));
+		m_blitOffScreen.reset(new GPUFrameBuffer(m_width, m_height, 0, type, GPU_OFFSCREEN_RENDERBUFFER_DEPTH, nullptr, RAS_Rasterizer::GPUFrameBuffer_CUSTOM));
 		m_finalOffScreen = m_blitOffScreen.get();
 	}
 	else {
@@ -133,7 +132,7 @@ ImageRender::~ImageRender(void)
 
 int ImageRender::GetColorBindCode() const
 {
-	return m_finalOffScreen->GetColorBindCode();
+	return -1; // m_finalOffScreen->GetColorBindCode();
 }
 
 // get update shadow buffer
@@ -210,14 +209,14 @@ void ImageRender::calcViewport(unsigned int texId, double ts, bool mipmap, unsig
 		}
 	}
 
-	m_finalOffScreen->Bind();
+	//m_finalOffScreen->Bind();
 
-	// wait until all render operations are completed
-	WaitSync();
-	// get image from viewport (or FBO)
-	ImageViewport::calcViewport(texId, ts, mipmap, format);
+	//// wait until all render operations are completed
+	//WaitSync();
+	//// get image from viewport (or FBO)
+	//ImageViewport::calcViewport(texId, ts, mipmap, format);
 
-	RAS_OffScreen::RestoreScreen();
+	//GPUFrameBuffer::RestoreScreen();
 }
 
 bool ImageRender::Render()
@@ -303,7 +302,7 @@ bool ImageRender::Render()
 
 	// The screen area that ImageViewport will copy is also the rendering zone
 	// bind the fbo and set the viewport to full size
-	m_offScreen->Bind();
+	//m_offScreen->Bind();
 
 	m_rasterizer->BeginFrame(m_engine->GetFrameTime());
 
@@ -399,14 +398,14 @@ bool ImageRender::Render()
 
 	m_engine->UpdateAnimations(m_scene);
 
-	m_scene->RenderBuckets(objects, RAS_Rasterizer::RAS_TEXTURED, camtrans, m_rasterizer, m_offScreen.get());
+	//m_scene->RenderBuckets(objects, RAS_Rasterizer::RAS_TEXTURED, camtrans, m_rasterizer, m_offScreen.get());
 
 	m_canvas->EndFrame();
 
 	// In case multisample is active, blit the FBO
-	if (m_samples > 0) {
+	/*if (m_samples > 0) {
 		m_offScreen->Blit(m_blitOffScreen.get(), true, true);
-	}
+	}*/
 
 #ifdef WITH_GAMEENGINE_GPU_SYNC
 	// end of all render operations, let's create a sync object just in case
@@ -442,7 +441,7 @@ void ImageRender::WaitSync()
 #endif
 
 	// this is needed to finalize the image if the target is a texture
-	m_finalOffScreen->MipmapTexture();
+	//m_finalOffScreen->MipmapTexture();
 
 	// all rendered operation done and complete, invalidate render for next time
 	m_done = false;
@@ -881,9 +880,9 @@ ImageRender::ImageRender(KX_Scene *scene, KX_GameObject *observer, KX_GameObject
 		m_internalFormat = GL_RGBA12;
 	}
 
-	m_offScreen.reset(new RAS_OffScreen(m_width, m_height, m_samples, type, GPU_OFFSCREEN_RENDERBUFFER_DEPTH, nullptr, RAS_Rasterizer::RAS_OFFSCREEN_CUSTOM));
+	m_offScreen.reset(new GPUFrameBuffer(m_width, m_height, m_samples, type, GPU_OFFSCREEN_RENDERBUFFER_DEPTH, nullptr, RAS_Rasterizer::GPUFrameBuffer_CUSTOM));
 	if (m_samples > 0) {
-		m_blitOffScreen.reset(new RAS_OffScreen(m_width, m_height, 0, type, GPU_OFFSCREEN_RENDERBUFFER_DEPTH, nullptr, RAS_Rasterizer::RAS_OFFSCREEN_CUSTOM));
+		m_blitOffScreen.reset(new GPUFrameBuffer(m_width, m_height, 0, type, GPU_OFFSCREEN_RENDERBUFFER_DEPTH, nullptr, RAS_Rasterizer::GPUFrameBuffer_CUSTOM));
 		m_finalOffScreen = m_blitOffScreen.get();
 	}
 	else {

@@ -51,7 +51,6 @@
 #include "RAS_BucketManager.h"
 #include "RAS_Rasterizer.h"
 #include "RAS_ICanvas.h"
-#include "RAS_OffScreen.h"
 #include "RAS_Query.h"
 #include "RAS_ILightObject.h"
 #include "SCA_IInputDevice.h"
@@ -76,6 +75,10 @@
 #include "DNA_scene_types.h"
 
 #include "KX_NavMeshObject.h"
+
+extern "C" {
+#  include "GPU_framebuffer.h"
+}
 
 #define DEFAULT_LOGIC_TIC_RATE 60.0
 
@@ -116,8 +119,7 @@ KX_KetsjiEngine::SceneRenderData::SceneRenderData(KX_Scene *scene)
 {
 }
 
-KX_KetsjiEngine::FrameRenderData::FrameRenderData(RAS_Rasterizer::OffScreenType ofsType)
-	:m_ofsType(ofsType)
+KX_KetsjiEngine::FrameRenderData::FrameRenderData()
 {
 }
 
@@ -580,12 +582,6 @@ KX_KetsjiEngine::RenderData KX_KetsjiEngine::GetRenderData()
 	// The number of frames in case of stereo, could be multiple for interlaced or anaglyph stereo.
 	const unsigned short numframes = (renderpereye) ? 2 : 1;
 
-	// The off screen corresponding to the frame.
-	static const RAS_Rasterizer::OffScreenType ofsType[] = {
-		RAS_Rasterizer::RAS_OFFSCREEN_EYE_LEFT0,
-		RAS_Rasterizer::RAS_OFFSCREEN_EYE_RIGHT0
-	};
-
 	// Pre-compute the display area used for stereo or normal rendering.
 	std::vector<RAS_Rect> displayAreas;
 	for (unsigned short eye = 0; eye < numeyes; ++eye) {
@@ -612,7 +608,7 @@ KX_KetsjiEngine::RenderData KX_KetsjiEngine::GetRenderData()
 	}
 
 	for (unsigned short frame = 0; frame < numframes; ++frame) {
-		renderData.m_frameDataList.emplace_back(ofsType[frame]);
+		renderData.m_frameDataList.emplace_back();
 		FrameRenderData& frameData = renderData.m_frameDataList.back();
 
 		// Get the eyes managed per frame.
@@ -686,7 +682,7 @@ void KX_KetsjiEngine::Render()
 
 	for (FrameRenderData& frameData : renderData.m_frameDataList) {
 		// Current bound off screen.
-		//RAS_OffScreen *offScreen = m_rasterizer->GetOffScreen(frameData.m_ofsType);
+		//GPUFrameBuffer *offScreen = m_rasterizer->GetOffScreen(frameData.m_ofsType);
 		//offScreen->Bind();
 
 		// Clear off screen only before the first scene render.
@@ -741,8 +737,8 @@ void KX_KetsjiEngine::Render()
 
 	//// Compositing per eye off screens to screen.
 	//if (renderData.m_renderPerEye) {
-	//	RAS_OffScreen *leftofs = m_rasterizer->GetOffScreen(renderData.m_frameDataList[0].m_ofsType);
-	//	RAS_OffScreen *rightofs = m_rasterizer->GetOffScreen(renderData.m_frameDataList[1].m_ofsType);
+	//	GPUFrameBuffer *leftofs = m_rasterizer->GetOffScreen(renderData.m_frameDataList[0].m_ofsType);
+	//	GPUFrameBuffer *rightofs = m_rasterizer->GetOffScreen(renderData.m_frameDataList[1].m_ofsType);
 	//	m_rasterizer->DrawStereoOffScreenToScreen(m_canvas, leftofs, rightofs, renderData.m_stereoMode);
 	//}
 	//// Else simply draw the off screen to screen.
@@ -956,7 +952,7 @@ mt::mat4 KX_KetsjiEngine::GetCameraProjectionMatrix(KX_Scene *scene, KX_Camera *
 }
 
 // update graphics
-void KX_KetsjiEngine::RenderCamera(KX_Scene *scene, const CameraRenderData& cameraFrameData, RAS_OffScreen *offScreen,
+void KX_KetsjiEngine::RenderCamera(KX_Scene *scene, const CameraRenderData& cameraFrameData, GPUFrameBuffer *offScreen,
                                    unsigned short pass, bool isFirstScene)
 {
 	KX_Camera *rendercam = cameraFrameData.m_renderCamera;
@@ -1037,7 +1033,7 @@ void KX_KetsjiEngine::RenderCamera(KX_Scene *scene, const CameraRenderData& came
 /*
  * To run once per scene
  */
-RAS_OffScreen *KX_KetsjiEngine::PostRenderScene(KX_Scene *scene, RAS_OffScreen *inputofs, RAS_OffScreen *targetofs)
+GPUFrameBuffer *KX_KetsjiEngine::PostRenderScene(KX_Scene *scene, GPUFrameBuffer *inputofs, GPUFrameBuffer *targetofs)
 {
 	KX_SetActiveScene(scene);
 
@@ -1049,7 +1045,7 @@ RAS_OffScreen *KX_KetsjiEngine::PostRenderScene(KX_Scene *scene, RAS_OffScreen *
 	m_rasterizer->SetViewport(0, 0, width, height);
 	m_rasterizer->SetScissor(0, 0, width, height);
 
-	RAS_OffScreen *offScreen = scene->Render2DFilters(m_rasterizer, m_canvas, inputofs, targetofs);
+	GPUFrameBuffer *offScreen = scene->Render2DFilters(m_rasterizer, m_canvas, inputofs, targetofs);
 
 #ifdef WITH_PYTHON
 	/* We can't deduce what camera should be passed to the python callbacks

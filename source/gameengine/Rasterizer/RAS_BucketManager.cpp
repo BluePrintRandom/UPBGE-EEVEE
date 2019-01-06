@@ -157,7 +157,7 @@ void RAS_BucketManager::RenderBasicBuckets(RAS_Rasterizer *rasty, RAS_BucketMana
 }
 
 void RAS_BucketManager::Renderbuckets(RAS_Rasterizer::DrawType drawingMode, const mt::mat3x4& cameratrans, RAS_Rasterizer *rasty,
-                                      RAS_OffScreen *offScreen)
+                                      GPUFrameBuffer *offScreen)
 {
 	m_nodeData.m_rasty = rasty;
 	m_nodeData.m_trans = cameratrans;

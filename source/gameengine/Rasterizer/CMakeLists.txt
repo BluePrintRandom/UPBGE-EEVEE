@@ -83,7 +83,6 @@ set(SRC
 	RAS_Mesh.cpp
 	RAS_MeshSlot.cpp
 	RAS_MeshUser.cpp
-	RAS_OffScreen.cpp
 	RAS_Query.cpp
 	RAS_Shader.cpp
 	RAS_Texture.cpp
@@ -120,7 +119,6 @@ set(SRC
 	RAS_Mesh.h
 	RAS_MeshSlot.h
 	RAS_MeshUser.h
-	RAS_OffScreen.h
 	RAS_Query.h
 	RAS_Rect.h
 	RAS_Shader.h

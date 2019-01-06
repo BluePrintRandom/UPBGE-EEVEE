@@ -135,11 +135,14 @@ RAS_OpenGLRasterizer::ScreenPlane::ScreenPlane()
 	glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
 
 	// Enable vertex/uv pointer.
-	glEnableClientState(GL_VERTEX_ARRAY);
-	glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+	//glEnableClientState(GL_VERTEX_ARRAY);
+	//glEnableClientState(GL_TEXTURE_COORD_ARRAY);
 
+	glEnableVertexAttribArray(0); //position
 	// Bind vertex/uv pointer with VBO offset. (position = 0, uv = 3 * float, stride = 5 * float).
 	glVertexPointer(3, GL_FLOAT, sizeof(float) * 5, 0);
+
+	glEnableVertexAttribArray(2); //texcoords
 	glTexCoordPointer(2, GL_FLOAT, sizeof(float) * 5, ((char *)nullptr) + sizeof(float) * 3);
 
 	// Unbind VBO
@@ -154,6 +157,9 @@ RAS_OpenGLRasterizer::ScreenPlane::~ScreenPlane()
 	glDeleteVertexArrays(1, &m_vao);
 	glDeleteBuffers(1, &m_vbo);
 	glDeleteBuffers(1, &m_ibo);
+
+	glDisableVertexAttribArray(0);
+	glDisableVertexAttribArray(2);
 }
 
 inline void RAS_OpenGLRasterizer::ScreenPlane::Render()

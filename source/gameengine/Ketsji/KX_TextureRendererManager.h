@@ -35,9 +35,10 @@ class KX_Scene;
 class KX_TextureRenderer;
 
 class RAS_Rasterizer;
-class RAS_OffScreen;
 class RAS_Texture;
 class RAS_Rect;
+
+struct GPUFrameBuffer;
 
 class KX_TextureRendererManager
 {
@@ -85,7 +86,7 @@ public:
 	 * \param viewport The viewport render area.
 	 * \param area The windows render area.
 	 */
-	void Render(RendererCategory category, RAS_Rasterizer *rasty, RAS_OffScreen *offScreen,
+	void Render(RendererCategory category, RAS_Rasterizer *rasty, GPUFrameBuffer *offScreen,
 				KX_Camera *sceneCamera, const RAS_Rect& viewport, const RAS_Rect& area);
 
 	/// Merge the content of an other renderer manager, used during lib loading.

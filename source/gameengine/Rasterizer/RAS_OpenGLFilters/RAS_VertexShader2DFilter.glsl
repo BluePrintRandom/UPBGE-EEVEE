@@ -1,6 +1,10 @@
+in vec4 filterPosition;
+in vec4 filterTexCoord;
+out vec4 bgl_TexCoord;
+
 void main(void)
 {
-	gl_Position = gl_Vertex;
-	gl_TexCoord[0] = gl_MultiTexCoord0;
+	gl_Position = filterPosition;
+	bgl_TexCoord = filterTexCoord;
 }
 

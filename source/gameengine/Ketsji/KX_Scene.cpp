@@ -208,6 +208,8 @@ KX_Scene::KX_Scene(SCA_IInputDevice *inputDevice,
 	/*************************************************EEVEE INTEGRATION***********************************************************/
 	m_staticObjects = {};
 
+	m_renderBufferIndex = 0;
+
 	m_taaSamplesBackup = scene->eevee.taa_samples;
 	scene->eevee.taa_samples = 0;
 	DEG_id_tag_update(&scene->id, ID_RECALC_COPY_ON_WRITE);
@@ -382,11 +384,29 @@ void KX_Scene::RenderAfterCameraSetup(bool calledFromConstructor)
 
 	GPUTexture *finaltex = DRW_game_render_loop(bmain, scene, maincam, viewportsize, state, v, calledFromConstructor, reset_taa_samples);
 
+	GPUFrameBuffer *input = rasty->NextRenderOffScreen((m_renderBufferIndex + 1) % 2);
+
+	m_renderBufferIndex++;
+
+	GPUFrameBuffer *output = rasty->NextRenderOffScreen((m_renderBufferIndex + 1) % 2);
+
+
+	GPU_framebuffer_texture_attach(input, finaltex, 0, 0);
+	GPU_framebuffer_bind(input);
+
+	GPUFrameBuffer *o = Render2DFilters(rasty, canvas, input, output);
+
+	GPUTexture *postProcessedTex = GPU_framebuffer_color_texture(o, 0);
+
 	glEnable(GL_SCISSOR_TEST);
 	glViewport(v[0], v[1], v[2], v[3]);
 	glScissor(v[0], v[1], v[2], v[3]);
 
-	DRW_transform_to_display(finaltex, false);
+	DRW_transform_to_display(postProcessedTex, false);
+
+	GPU_framebuffer_texture_detach(input, finaltex);
+
+	GPU_framebuffer_restore();
 
 	if (!calledFromConstructor) {
 		engine->EndFrame();
@@ -1516,7 +1536,7 @@ void KX_Scene::UpdateParents()
 }
 
 void KX_Scene::RenderBuckets(const std::vector<KX_GameObject *>& objects, RAS_Rasterizer::DrawType drawingMode, const mt::mat3x4& cameratransform,
-                             RAS_Rasterizer *rasty, RAS_OffScreen *offScreen)
+                             RAS_Rasterizer *rasty, GPUFrameBuffer *offScreen)
 {
 	for (KX_GameObject *gameobj : objects) {
 		/* This function update all mesh slot info (e.g culling, color, matrix) from the game object.
@@ -1529,7 +1549,7 @@ void KX_Scene::RenderBuckets(const std::vector<KX_GameObject *>& objects, RAS_Ra
 }
 
 void KX_Scene::RenderTextureRenderers(KX_TextureRendererManager::RendererCategory category, RAS_Rasterizer *rasty,
-                                      RAS_OffScreen *offScreen, KX_Camera *camera, const RAS_Rect& viewport, const RAS_Rect& area)
+                                      GPUFrameBuffer *offScreen, KX_Camera *camera, const RAS_Rect& viewport, const RAS_Rect& area)
 {
 	m_rendererManager->Render(category, rasty, offScreen, camera, viewport, area);
 }
@@ -1828,7 +1848,7 @@ KX_2DFilterManager *KX_Scene::Get2DFilterManager() const
 	return m_filterManager;
 }
 
-RAS_OffScreen *KX_Scene::Render2DFilters(RAS_Rasterizer *rasty, RAS_ICanvas *canvas, RAS_OffScreen *inputofs, RAS_OffScreen *targetofs)
+GPUFrameBuffer *KX_Scene::Render2DFilters(RAS_Rasterizer *rasty, RAS_ICanvas *canvas, GPUFrameBuffer *inputofs, GPUFrameBuffer *targetofs)
 {
 	return m_filterManager->RenderFilters(rasty, canvas, inputofs, targetofs);
 }

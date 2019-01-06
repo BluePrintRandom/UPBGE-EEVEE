@@ -25,7 +25,6 @@
 #include "RAS_2DFilterOffScreen.h"
 #include "RAS_Rasterizer.h"
 #include "RAS_ICanvas.h"
-#include "RAS_OffScreen.h"
 #include "RAS_Rect.h"
 
 #include "EXP_Value.h"
@@ -34,6 +33,11 @@
 
 extern "C" {
 extern char datatoc_RAS_VertexShader2DFilter_glsl[];
+}
+
+extern "C" {
+#  include "GPU_framebuffer.h"
+#  include "GPU_texture.h"
 }
 
 static std::string predefinedUniformsName[RAS_2DFilter::MAX_PREDEFINED_UNIFORM_TYPE] = {
@@ -101,12 +105,12 @@ void RAS_2DFilter::Initialize(RAS_ICanvas *canvas)
 	}
 }
 
-RAS_OffScreen *RAS_2DFilter::Render(RAS_Rasterizer *rasty, RAS_ICanvas *canvas, RAS_OffScreen *depthofs,
-                                    RAS_OffScreen *colorofs, RAS_OffScreen *targetofs)
+GPUFrameBuffer *RAS_2DFilter::Render(RAS_Rasterizer *rasty, RAS_ICanvas *canvas, GPUFrameBuffer *depthofs,
+                                    GPUFrameBuffer *colorofs, GPUFrameBuffer *targetofs)
 {
 	/* The off screen the filter rendered to. If the filter is invalid or uses a custom
 	 * off screen the output off screen is the same as the input off screen. */
-	RAS_OffScreen *outputofs = colorofs;
+	GPUFrameBuffer *outputofs = colorofs;
 	if (!Ok()) {
 		return outputofs;
 	}
@@ -115,17 +119,17 @@ RAS_OffScreen *RAS_2DFilter::Render(RAS_Rasterizer *rasty, RAS_ICanvas *canvas, 
 	 * screen because depth is unchanged. */
 	BLI_assert(targetofs != colorofs);
 
-	if (m_offScreen) {
+	/*if (m_offScreen) {
 		if (!m_offScreen->Update(canvas)) {
 			return outputofs;
 		}
 
 		m_offScreen->Bind(rasty);
 	}
-	else {
-		targetofs->Bind();
-		outputofs = targetofs;
-	}
+	else {*/
+	GPU_framebuffer_bind(targetofs);// ->Bind();
+	outputofs = targetofs;
+	//}
 
 	Initialize(canvas);
 
@@ -142,9 +146,9 @@ RAS_OffScreen *RAS_2DFilter::Render(RAS_Rasterizer *rasty, RAS_ICanvas *canvas, 
 
 	UnbindTextures(depthofs, colorofs);
 
-	if (m_offScreen) {
+	/*if (m_offScreen) {
 		m_offScreen->Unbind(rasty, canvas);
-	}
+	}*/
 
 	UnbindProg();
 
@@ -199,16 +203,20 @@ void RAS_2DFilter::ComputeTextureOffsets(RAS_ICanvas *canvas)
 	}
 }
 
-void RAS_2DFilter::BindTextures(RAS_OffScreen *depthofs, RAS_OffScreen *colorofs)
+void RAS_2DFilter::BindTextures(GPUFrameBuffer *depthofs, GPUFrameBuffer *colorofs)
 {
 	if (m_predefinedUniforms[RENDERED_TEXTURE_UNIFORM] != -1) {
-		colorofs->BindColorTexture(8);
-		if (m_mipmap) {
+		GPUTexture *color = GPU_framebuffer_color_texture(colorofs, 8);
+		GPU_texture_bind(color, 8);
+		//colorofs->BindColorTexture(8);
+		/*if (m_mipmap) {
 			colorofs->MipmapTexture();
-		}
+		}*/
 	}
 	if (m_predefinedUniforms[DEPTH_TEXTURE_UNIFORM] != -1) {
-		depthofs->BindDepthTexture(9);
+		GPUTexture *depth = GPU_framebuffer_depth_texture(depthofs);
+		GPU_texture_bind(depth, 9);
+		//depthofs->BindDepthTexture(9);
 	}
 
 	// Bind custom textures.
@@ -218,16 +226,20 @@ void RAS_2DFilter::BindTextures(RAS_OffScreen *depthofs, RAS_OffScreen *colorofs
 	}
 }
 
-void RAS_2DFilter::UnbindTextures(RAS_OffScreen *depthofs, RAS_OffScreen *colorofs)
+void RAS_2DFilter::UnbindTextures(GPUFrameBuffer *depthofs, GPUFrameBuffer *colorofs)
 {
 	if (m_predefinedUniforms[RENDERED_TEXTURE_UNIFORM] != -1) {
-		colorofs->UnbindColorTexture();
-		if (m_mipmap) {
+		GPUTexture *color = GPU_framebuffer_color_texture(colorofs, 8);
+		GPU_texture_unbind(color);
+		//colorofs->UnbindColorTexture();
+		/*if (m_mipmap) {
 			colorofs->UnmipmapTexture();
-		}
+		}*/
 	}
 	if (m_predefinedUniforms[DEPTH_TEXTURE_UNIFORM] != -1) {
-		depthofs->UnbindDepthTexture();
+		GPUTexture *depth = GPU_framebuffer_depth_texture(depthofs);
+		GPU_texture_unbind(depth);
+		//depthofs->UnbindDepthTexture();
 	}
 
 	// Unbind custom textures.

@@ -36,8 +36,9 @@
 
 #include <vector>
 
-class RAS_OffScreen;
 class SCA_IScene;
+
+struct GPUFrameBuffer;
 
 class RAS_BucketManager : public mt::SimdClassAllocator
 {
@@ -105,7 +106,7 @@ public:
 	virtual ~RAS_BucketManager();
 
 	void Renderbuckets(RAS_Rasterizer::DrawType drawingMode, const mt::mat3x4& cameratrans, RAS_Rasterizer *rasty,
-			RAS_OffScreen *offScreen);
+			GPUFrameBuffer *offScreen);
 
 	RAS_MaterialBucket *FindBucket(RAS_IMaterial *material, bool &bucketCreated);
 	RAS_DisplayArrayBucket *GetTextDisplayArrayBucket() const;

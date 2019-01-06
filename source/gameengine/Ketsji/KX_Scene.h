@@ -80,8 +80,9 @@ class RAS_BucketManager;
 class RAS_MaterialBucket;
 class RAS_IMaterial;
 class RAS_Rasterizer;
-class RAS_OffScreen;
 class RAS_2DFilterManager;
+
+struct GPUFrameBuffer;
 
 struct Scene;
 struct TaskPool;
@@ -288,6 +289,8 @@ public:
 	bool ObjectsAreStatic();
 	void ResetTaaSamples();
 
+	int m_renderBufferIndex;
+
 
 	bool m_isRuntime; // Too lazy to put that in protected
 
@@ -300,8 +303,8 @@ public:
 	KX_TextureRendererManager *GetTextureRendererManager() const;
 	RAS_BoundingBoxManager *GetBoundingBoxManager() const;
 	void RenderBuckets(const std::vector<KX_GameObject *>& objects, RAS_Rasterizer::DrawType drawingMode,
-	                   const mt::mat3x4& cameratransform, RAS_Rasterizer *rasty, RAS_OffScreen *offScreen);
-	void RenderTextureRenderers(KX_TextureRendererManager::RendererCategory category, RAS_Rasterizer *rasty, RAS_OffScreen *offScreen,
+	                   const mt::mat3x4& cameratransform, RAS_Rasterizer *rasty, GPUFrameBuffer *offScreen);
+	void RenderTextureRenderers(KX_TextureRendererManager::RendererCategory category, RAS_Rasterizer *rasty, GPUFrameBuffer *offScreen,
 	                            KX_Camera *sceneCamera, const RAS_Rect& viewport, const RAS_Rect& area);
 
 	/// Update all transforms according to the scenegraph.
@@ -449,7 +452,7 @@ public:
 
 	/// 2D Filters.
 	KX_2DFilterManager *Get2DFilterManager() const;
-	RAS_OffScreen *Render2DFilters(RAS_Rasterizer *rasty, RAS_ICanvas *canvas, RAS_OffScreen *inputofs, RAS_OffScreen *targetofs);
+	GPUFrameBuffer *Render2DFilters(RAS_Rasterizer *rasty, RAS_ICanvas *canvas, GPUFrameBuffer *inputofs, GPUFrameBuffer *targetofs);
 
 	KX_ObstacleSimulation *GetObstacleSimulation();
 	void SetObstacleSimulation(KX_ObstacleSimulation *obstacleSimulation);
