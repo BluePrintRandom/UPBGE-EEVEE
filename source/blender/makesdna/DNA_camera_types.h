@@ -84,10 +84,13 @@ typedef struct GameCameraViewportSettings {
 
 typedef struct Camera {
 	ID id;
-	struct AnimData *adt;	/* animation data (must be immediately after id for utilities to use it) */
+	/** Animation data (must be immediately after id for utilities to use it). */
+	struct AnimData *adt;
 
-	char type; /* CAM_PERSP, CAM_ORTHO or CAM_PANO */
-	char dtx; /* draw type extra */
+	/** CAM_PERSP, CAM_ORTHO or CAM_PANO. */
+	char type;
+	/** Draw type extra. */
+	char dtx;
 	short flag;
 
 	/* Game settings */
@@ -109,7 +112,8 @@ typedef struct Camera {
 	float YF_dofdist;
 	float pad51;
 
-	struct Ipo *ipo  DNA_DEPRECATED; /* old animation system, deprecated for 2.5 */
+	/** Old animation system, deprecated for 2.5. */
+	struct Ipo *ipo  DNA_DEPRECATED;
 
 	struct Object *dof_ob;
 	struct GPUDOFSettings gpu_dof;

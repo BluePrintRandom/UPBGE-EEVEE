@@ -137,11 +137,11 @@ void Texture::Close()
 			m_matTexture->SetBindCode(m_orgTex);
 			if (m_imgTexture) {
 				// This is requierd for texture used in blender material.
-				m_imgTexture->bindcode[TEXTARGET_TEXTURE_2D] = m_orgImg;
+				//m_imgTexture->bindcode[TEXTARGET_TEXTURE_2D] = m_orgImg;
 			}
 		}
 		else {
-			m_imgTexture->bindcode[TEXTARGET_TEXTURE_2D] = m_orgImg;
+			//m_imgTexture->bindcode[TEXTARGET_TEXTURE_2D] = m_orgImg;
 			BKE_image_release_ibuf(m_imgTexture, m_imgBuf, nullptr);
 			m_imgBuf = nullptr;
 		}
@@ -392,8 +392,8 @@ EXP_PYMETHODDEF_DOC(Texture, refresh, "Refresh texture from source")
 						m_orgTex = m_matTexture->GetBindCode();
 						m_matTexture->SetBindCode(m_actTex);
 						if (m_imgTexture) {
-							m_orgImg = m_imgTexture->bindcode[TEXTARGET_TEXTURE_2D];
-							m_imgTexture->bindcode[TEXTARGET_TEXTURE_2D] = m_actTex;
+							//m_orgImg = m_imgTexture->bindcode[TEXTARGET_TEXTURE_2D];
+							//m_imgTexture->bindcode[TEXTARGET_TEXTURE_2D] = m_actTex;
 						}
 					}
 					else {
@@ -403,8 +403,8 @@ EXP_PYMETHODDEF_DOC(Texture, refresh, "Refresh texture from source")
 						// WARNING: GPU has a ImageUser to pass, we don't. Using nullptr
 						// works on image file, not necessarily on other type of image.
 						m_imgBuf = BKE_image_acquire_ibuf(m_imgTexture, nullptr, nullptr);
-						m_orgImg = m_imgTexture->bindcode[TEXTARGET_TEXTURE_2D];
-						m_imgTexture->bindcode[TEXTARGET_TEXTURE_2D] = m_actTex;
+						//m_orgImg = m_imgTexture->bindcode[TEXTARGET_TEXTURE_2D];
+						//m_imgTexture->bindcode[TEXTARGET_TEXTURE_2D] = m_actTex;
 					}
 				}
 
